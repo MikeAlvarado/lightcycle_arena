@@ -1,6 +1,6 @@
 // src/components/GameCanvas.tsx
-import { useEffect, useRef, useCallback, useMemo } from "react";
-import { GRID_CONFIG, type GridConfig } from "../utils/gridConfig";
+import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { GRID_CONFIG, type GridConfig } from '../utils/gridConfig';
 import {
   createEmptyLattice,
   toLatticeVertexIndices,
@@ -13,20 +13,10 @@ import {
   type LatticeMatrix,
   type Direction,
   type LogicalVertex,
-} from "../utils/latticeHelpers";
-import { handleKeyDown as handleKeyDownBase } from "../utils/inputHandlers";
-import { drawFrame } from "../utils/canvasDrawing";
-
-/**
- * Player shape for this component.
- */
-interface Player {
-  name: string;
-  color: string;
-  headLatticeIndex: LatticeIndex; // lattice vertex (even, even)
-  direction: Direction;
-  pendingDirection: Direction;
-}
+} from '../utils/latticeHelpers';
+import { handleKeyDown as handleKeyDownBase } from '../utils/inputHandlers';
+import { drawFrame } from '../utils/canvasDrawing';
+import type { Player, PlayerForInput } from '../types/player';
 
 /**
  * GameCanvas — Single Player using 2x Lattice (TypeScript, explicit names)
@@ -45,7 +35,10 @@ export function GameCanvas(): JSX.Element {
   const tickCounterRef = useRef<number>(0);
 
   // Grid (constant for this component)
-  const gridRef = useRef<GridConfig>({ columns: GRID_CONFIG.columns, rows: GRID_CONFIG.rows });
+  const gridRef = useRef<GridConfig>({
+    columns: GRID_CONFIG.columns,
+    rows: GRID_CONFIG.rows,
+  });
 
   // Lattice (2x) occupancy
   const latticeRef = useRef<LatticeMatrix>(
@@ -54,82 +47,92 @@ export function GameCanvas(): JSX.Element {
 
   // Game state
   const gameIsRunningRef = useRef<boolean>(true);
-  const resultMessageRef = useRef<string>("");
+  const resultMessageRef = useRef<string>('');
 
   // Player
-  const initialLogicalVertex: LogicalVertex = useMemo(() => ({
-    columnIndexInCells: 5,
-    rowIndexInCells: Math.floor(gridRef.current.rows / 2),
-  }), []);
+  const initialLogicalVertex: LogicalVertex = useMemo(
+    () => ({
+      columnIndexInCells: 5,
+      rowIndexInCells: Math.floor(gridRef.current.rows / 2),
+    }),
+    []
+  );
 
-
+  // Player ref using our interface
   const playerOneRef = useRef<Player>({
-    name: "Player One",
-    color: "#00e5ff",
+    id: 1,
+    name: 'Player One',
+    color: '#00e5ff',
+
     headLatticeIndex: toLatticeVertexIndices(initialLogicalVertex),
-    direction: "right",
-    pendingDirection: "right",
+    direction: 'right',
+    pendingDirection: 'right',
+
+    isAlive: true,
+    ticksSurvived: 0,
   });
 
   // ---------- reset ----------
   const resetRound = useCallback((): void => {
-    latticeRef.current = createEmptyLattice(gridRef.current.rows, gridRef.current.columns);
+    latticeRef.current = createEmptyLattice(
+      gridRef.current.rows,
+      gridRef.current.columns
+    );
 
-    playerOneRef.current.headLatticeIndex = toLatticeVertexIndices(initialLogicalVertex);
-    playerOneRef.current.direction = "right";
-    playerOneRef.current.pendingDirection = "right";
+    playerOneRef.current.headLatticeIndex =
+      toLatticeVertexIndices(initialLogicalVertex);
+    playerOneRef.current.direction = 'right';
+    playerOneRef.current.pendingDirection = 'right';
+    playerOneRef.current.isAlive = true;
+    playerOneRef.current.ticksSurvived = 0;
 
     gameIsRunningRef.current = true;
-    resultMessageRef.current = "";
+    resultMessageRef.current = '';
     tickCounterRef.current = 0;
   }, [initialLogicalVertex]);
 
   // ---------- logic ----------
   function updateLogic(): void {
-    if (!gameIsRunningRef.current) return;
+    if (!gameIsRunningRef.current || !playerOneRef.current.isAlive) return;
 
     applyPendingDirection(playerOneRef);
 
-    const fromVertex = playerOneRef.current.headLatticeIndex; // even, even (lattice)
-    const { traversedEdgeCellInLattice, destinationVertexInLattice } = stepOnLattice(
-      fromVertex,
-      playerOneRef.current.direction
-    );
+    const fromVertex = playerOneRef.current.headLatticeIndex;
+    const { traversedEdgeCellInLattice, destinationVertexInLattice } =
+      stepOnLattice(fromVertex, playerOneRef.current.direction);
 
-    // Bounds
     if (
       !isInsideLattice(traversedEdgeCellInLattice, gridRef.current) ||
       !isInsideLattice(destinationVertexInLattice, gridRef.current)
     ) {
+      playerOneRef.current.isAlive = false;
       gameIsRunningRef.current = false;
       resultMessageRef.current = `${playerOneRef.current.name} hit the wall. Press 'R' to reset.`;
       return;
     }
 
-    // Collision: traversed edge or destination vertex already occupied
     if (
       isOccupied(latticeRef.current, traversedEdgeCellInLattice) ||
       isOccupied(latticeRef.current, destinationVertexInLattice)
     ) {
+      playerOneRef.current.isAlive = false;
       gameIsRunningRef.current = false;
       resultMessageRef.current = `${playerOneRef.current.name} hit the trail. Press 'R' to reset.`;
       return;
     }
 
-    // Leave a trail: mark current vertex and traversed edge
     occupy(latticeRef.current, fromVertex);
     occupy(latticeRef.current, traversedEdgeCellInLattice);
 
-    // Advance head to destination vertex (not occupied yet)
     playerOneRef.current.headLatticeIndex = destinationVertexInLattice;
-
+    playerOneRef.current.ticksSurvived += 1;
     tickCounterRef.current += 1;
   }
 
   // ---------- Effect A: canvas, resize, RAF ----------
   useEffect(() => {
     const canvasElement = canvasReference.current!;
-    const context = canvasElement.getContext("2d") as CanvasRenderingContext2D;
+    const context = canvasElement.getContext('2d') as CanvasRenderingContext2D;
 
     function resizeCanvasKeepingGridAspect(): void {
       const aspectRatio = gridRef.current.rows / gridRef.current.columns;
@@ -141,7 +144,8 @@ export function GameCanvas(): JSX.Element {
     }
 
     function animationLoop(currentTimestamp: number): void {
-      if (!lastFrameTimestamp.current) lastFrameTimestamp.current = currentTimestamp;
+      if (!lastFrameTimestamp.current)
+        lastFrameTimestamp.current = currentTimestamp;
 
       const elapsed = currentTimestamp - lastFrameTimestamp.current;
       lastFrameTimestamp.current = currentTimestamp;
@@ -169,28 +173,32 @@ export function GameCanvas(): JSX.Element {
     }
 
     resizeCanvasKeepingGridAspect();
-    window.addEventListener("resize", resizeCanvasKeepingGridAspect);
+    window.addEventListener('resize', resizeCanvasKeepingGridAspect);
     requestIdReference.current = requestAnimationFrame(animationLoop);
 
     return () => {
       cancelAnimationFrame(requestIdReference.current);
-      window.removeEventListener("resize", resizeCanvasKeepingGridAspect);
+      window.removeEventListener('resize', resizeCanvasKeepingGridAspect);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---------- Effect B: INPUTS ----------
   useEffect(() => {
     function keydownHandler(event: KeyboardEvent): void {
-      handleKeyDownBase(event, playerOneRef, resetRound);
+      handleKeyDownBase(
+        event,
+        playerOneRef as React.MutableRefObject<PlayerForInput>,
+        resetRound
+      );
     }
-
-    window.addEventListener("keydown", keydownHandler);
-    return () => window.removeEventListener("keydown", keydownHandler);
+    window.addEventListener('keydown', keydownHandler);
+    return () => window.removeEventListener('keydown', keydownHandler);
   }, [resetRound]);
 
   // ---------- render ----------
   return (
-    <div style={{ width: "100%", border: "1px solid #222", borderRadius: 8 }}>
+    <div style={{ width: '100%', border: '1px solid #222', borderRadius: 8 }}>
       <canvas ref={canvasReference} />
     </div>
   );
