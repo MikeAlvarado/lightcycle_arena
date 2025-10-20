@@ -9,21 +9,27 @@ import {
   isOccupied,
   occupy,
   applyPendingDirection,
-  type LatticeIndex,
   type LatticeMatrix,
-  type Direction,
   type LogicalVertex,
 } from '../utils/latticeHelpers';
 import { handleKeyDown as handleKeyDownBase } from '../utils/inputHandlers';
-import { drawFrame } from '../utils/canvasDrawing';
+import {
+  drawGrid,
+  drawLatticeTrails,
+  drawHeadAtLatticeVertex,
+  drawOverlay,
+} from '../utils/canvasDrawing';
 import type { Player, PlayerForInput } from '../types/player';
+import {
+  decideNextDirection,
+  AI_PARAMS,
+  type AiDifficulty,
+} from '../ai/simpleAI';
 
 /**
- * GameCanvas — Single Player using 2x Lattice (TypeScript, explicit names)
- * -----------------------------------------------------------------------
- * - One boolean lattice for both edges and vertices.
- * - Head moves between lattice vertices (even, even).
- * - Collision if traversed edge OR destination vertex is occupied.
+ * GameCanvas — Two Players (Human + Simple AI) on 2x Lattice
+ * - Separate lattices for rendering (per player color).
+ * - One occupancy lattice for collisions and AI safety checks.
  */
 export function GameCanvas(): JSX.Element {
   // Canvas & loop
@@ -34,14 +40,20 @@ export function GameCanvas(): JSX.Element {
   const logicStepMilliseconds = 100; // 10 updates per second
   const tickCounterRef = useRef<number>(0);
 
-  // Grid (constant for this component)
+  // Grid
   const gridRef = useRef<GridConfig>({
     columns: GRID_CONFIG.columns,
     rows: GRID_CONFIG.rows,
   });
 
-  // Lattice (2x) occupancy
-  const latticeRef = useRef<LatticeMatrix>(
+  // Lattices
+  const occupancyLatticeRef = useRef<LatticeMatrix>(
+    createEmptyLattice(gridRef.current.rows, gridRef.current.columns)
+  );
+  const playerOneLatticeRef = useRef<LatticeMatrix>(
+    createEmptyLattice(gridRef.current.rows, gridRef.current.columns)
+  );
+  const playerTwoLatticeRef = useRef<LatticeMatrix>(
     createEmptyLattice(gridRef.current.rows, gridRef.current.columns)
   );
 
@@ -49,83 +61,171 @@ export function GameCanvas(): JSX.Element {
   const gameIsRunningRef = useRef<boolean>(true);
   const resultMessageRef = useRef<string>('');
 
-  // Player
+  // Spawn positions (memo to keep stable references)
   const initialLogicalVertex: LogicalVertex = useMemo(
     () => ({
-      columnIndexInCells: 5,
-      rowIndexInCells: Math.floor(gridRef.current.rows / 2),
+      columnIndexInCells: Math.floor(gridRef.current.columns / 2), // middle horizontally
+      rowIndexInCells: gridRef.current.rows - 6, // bottom area
+    }),
+    []
+  );
+  const botSpawnLogicalVertex: LogicalVertex = useMemo(
+    () => ({
+      columnIndexInCells: Math.floor(gridRef.current.columns / 2), // middle horizontally
+      rowIndexInCells: 6, // top area
     }),
     []
   );
 
-  // Player ref using our interface
+  // Human player
   const playerOneRef = useRef<Player>({
     id: 1,
     name: 'Player One',
-    color: '#00e5ff',
-
+    color: 'yellow',
     headLatticeIndex: toLatticeVertexIndices(initialLogicalVertex),
-    direction: 'right',
-    pendingDirection: 'right',
-
+    direction: 'up',
+    pendingDirection: 'up',
     isAlive: true,
     ticksSurvived: 0,
   });
 
+  // AI player
+  const playerTwoRef = useRef<Player>({
+    id: 2,
+    name: 'Bot',
+    color: 'blue',
+    headLatticeIndex: toLatticeVertexIndices(botSpawnLogicalVertex),
+    direction: 'down',
+    pendingDirection: 'down',
+    isAlive: true,
+    ticksSurvived: 0,
+  });
+
+  // Difficulty (can be moved to HUD later)
+  const botDifficulty: AiDifficulty = 'Hard';
+
   // ---------- reset ----------
   const resetRound = useCallback((): void => {
-    latticeRef.current = createEmptyLattice(
+    // Lattices
+    occupancyLatticeRef.current = createEmptyLattice(
+      gridRef.current.rows,
+      gridRef.current.columns
+    );
+    playerOneLatticeRef.current = createEmptyLattice(
+      gridRef.current.rows,
+      gridRef.current.columns
+    );
+    playerTwoLatticeRef.current = createEmptyLattice(
       gridRef.current.rows,
       gridRef.current.columns
     );
 
+    // Human
     playerOneRef.current.headLatticeIndex =
       toLatticeVertexIndices(initialLogicalVertex);
-    playerOneRef.current.direction = 'right';
-    playerOneRef.current.pendingDirection = 'right';
+    playerOneRef.current.direction = 'up';
+    playerOneRef.current.pendingDirection = 'up';
     playerOneRef.current.isAlive = true;
     playerOneRef.current.ticksSurvived = 0;
 
+    // Bot
+    playerTwoRef.current.headLatticeIndex = toLatticeVertexIndices(
+      botSpawnLogicalVertex
+    );
+    playerTwoRef.current.direction = 'down';
+    playerTwoRef.current.pendingDirection = 'down';
+    playerTwoRef.current.isAlive = true;
+    playerTwoRef.current.ticksSurvived = 0;
+
+    // Game state
     gameIsRunningRef.current = true;
     resultMessageRef.current = '';
     tickCounterRef.current = 0;
-  }, [initialLogicalVertex]);
+
+    // Prevent old key inputs from persisting
+    window.focus();
+  }, [initialLogicalVertex, botSpawnLogicalVertex]);
 
   // ---------- logic ----------
-  function updateLogic(): void {
-    if (!gameIsRunningRef.current || !playerOneRef.current.isAlive) return;
+  function moveOnePlayer(playerRef: React.MutableRefObject<Player>): void {
+    applyPendingDirection(playerRef);
 
-    applyPendingDirection(playerOneRef);
-
-    const fromVertex = playerOneRef.current.headLatticeIndex;
+    const fromVertex = playerRef.current.headLatticeIndex;
     const { traversedEdgeCellInLattice, destinationVertexInLattice } =
-      stepOnLattice(fromVertex, playerOneRef.current.direction);
+      stepOnLattice(fromVertex, playerRef.current.direction);
 
+    // Bounds or collision against global occupancy
     if (
       !isInsideLattice(traversedEdgeCellInLattice, gridRef.current) ||
-      !isInsideLattice(destinationVertexInLattice, gridRef.current)
+      !isInsideLattice(destinationVertexInLattice, gridRef.current) ||
+      isOccupied(occupancyLatticeRef.current, traversedEdgeCellInLattice) ||
+      isOccupied(occupancyLatticeRef.current, destinationVertexInLattice)
     ) {
-      playerOneRef.current.isAlive = false;
-      gameIsRunningRef.current = false;
-      resultMessageRef.current = `${playerOneRef.current.name} hit the wall. Press 'R' to reset.`;
+      playerRef.current.isAlive = false;
       return;
     }
 
+    // Leave global trail (for collisions)
+    occupy(occupancyLatticeRef.current, fromVertex);
+    occupy(occupancyLatticeRef.current, traversedEdgeCellInLattice);
+
+    // Leave per-player trail (for colored rendering)
+    const perPlayerLattice =
+      playerRef.current.id === 1
+        ? playerOneLatticeRef.current
+        : playerTwoLatticeRef.current;
+    occupy(perPlayerLattice, fromVertex);
+    occupy(perPlayerLattice, traversedEdgeCellInLattice);
+
+    // Advance head
+    playerRef.current.headLatticeIndex = destinationVertexInLattice;
+    playerRef.current.ticksSurvived += 1;
+  }
+
+  function updateLogic(): void {
+    if (!gameIsRunningRef.current) return;
+
+    // 1) Human moves first
+    if (playerOneRef.current.isAlive) {
+      moveOnePlayer(playerOneRef);
+    }
+
+    // If human crashed, end if bot still alive
+    if (!playerOneRef.current.isAlive) {
+      gameIsRunningRef.current = false;
+      resultMessageRef.current = 'Bot wins! You crashed.';
+      return;
+    }
+
+    // 2) AI decision cadence
+    const params = AI_PARAMS[botDifficulty];
     if (
-      isOccupied(latticeRef.current, traversedEdgeCellInLattice) ||
-      isOccupied(latticeRef.current, destinationVertexInLattice)
+      playerTwoRef.current.isAlive &&
+      tickCounterRef.current % params.decisionEveryNTicks === 0
     ) {
-      playerOneRef.current.isAlive = false;
+      const aiView = {
+        grid: gridRef.current,
+        lattice: occupancyLatticeRef.current, // safety checks use the global occupancy
+        self: playerTwoRef.current,
+        opponent: playerOneRef.current,
+      };
+      const nextDirection = decideNextDirection(aiView, botDifficulty);
+      playerTwoRef.current.pendingDirection = nextDirection;
+    }
+
+    // 3) Bot moves
+    if (playerTwoRef.current.isAlive) {
+      moveOnePlayer(playerTwoRef);
+    }
+
+    // If bot crashed, end with human victory
+    if (!playerTwoRef.current.isAlive) {
       gameIsRunningRef.current = false;
-      resultMessageRef.current = `${playerOneRef.current.name} hit the trail. Press 'R' to reset.`;
+      resultMessageRef.current = 'You win! The bot crashed.';
       return;
     }
 
-    occupy(latticeRef.current, fromVertex);
-    occupy(latticeRef.current, traversedEdgeCellInLattice);
-
-    playerOneRef.current.headLatticeIndex = destinationVertexInLattice;
-    playerOneRef.current.ticksSurvived += 1;
+    // Tick++
     tickCounterRef.current += 1;
   }
 
@@ -156,18 +256,52 @@ export function GameCanvas(): JSX.Element {
         accumulatedMilliseconds.current -= logicStepMilliseconds;
       }
 
-      drawFrame({
+      // ----- Drawing (grid → trails by player → heads → overlay) -----
+      drawGrid(
         context,
-        canvasWidth: canvasElement.width,
-        canvasHeight: canvasElement.height,
-        grid: gridRef.current,
-        lattice: latticeRef.current,
-        headLatticeIndex: playerOneRef.current.headLatticeIndex,
-        headColor: playerOneRef.current.color,
-        tickCounterValue: tickCounterRef.current,
-        running: gameIsRunningRef.current,
-        message: resultMessageRef.current,
-      });
+        canvasElement.width,
+        canvasElement.height,
+        gridRef.current
+      );
+      drawLatticeTrails(
+        context,
+        canvasElement.width,
+        canvasElement.height,
+        gridRef.current,
+        playerOneLatticeRef.current,
+        playerOneRef.current.color
+      );
+      drawLatticeTrails(
+        context,
+        canvasElement.width,
+        canvasElement.height,
+        gridRef.current,
+        playerTwoLatticeRef.current,
+        playerTwoRef.current.color
+      );
+      drawHeadAtLatticeVertex(
+        context,
+        canvasElement.width,
+        canvasElement.height,
+        gridRef.current,
+        playerOneRef.current.headLatticeIndex,
+        playerOneRef.current.color
+      );
+      drawHeadAtLatticeVertex(
+        context,
+        canvasElement.width,
+        canvasElement.height,
+        gridRef.current,
+        playerTwoRef.current.headLatticeIndex,
+        playerTwoRef.current.color
+      );
+      drawOverlay(
+        context,
+        gridRef.current,
+        tickCounterRef.current,
+        gameIsRunningRef.current,
+        resultMessageRef.current
+      );
 
       requestIdReference.current = requestAnimationFrame(animationLoop);
     }

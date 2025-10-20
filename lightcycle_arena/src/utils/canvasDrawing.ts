@@ -4,7 +4,7 @@ import type { GridConfig } from "./gridConfig";
 import type { LatticeIndex, LatticeMatrix } from "./latticeHelpers";
 
 /**
- * Draw the background and the crisp grid lines.
+ * Draw the dark background and crisp grid lines.
  */
 export function drawGrid(
   context: CanvasRenderingContext2D,
@@ -40,23 +40,24 @@ export function drawGrid(
 }
 
 /**
- * Draw trails using the 2x lattice (edges and vertices).
- * We paint where lattice[rowIndexInLattice][columnIndexInLattice] = true.
+ * Draw lattice trails (edges + vertices) with a specific color.
+ * The lattice is a 2x matrix:
  * - Horizontal edges: even row,   odd column
  * - Vertical edges:   odd row,    even column
- * - Vertices:         even row,   even column (painted with same thickness)
+ * - Vertices:         even row,   even column
  */
 export function drawLatticeTrails(
   context: CanvasRenderingContext2D,
   canvasWidth: number,
   canvasHeight: number,
   grid: GridConfig,
-  lattice: LatticeMatrix
+  lattice: LatticeMatrix,
+  trailColor: string
 ): void {
   const cellWidth = canvasWidth / grid.columns;
   const cellHeight = canvasHeight / grid.rows;
 
-  const edgeThickness = 2; // px (you can make this configurable via HUD)
+  const edgeThickness = 2; // px
 
   // Horizontal edges (even row, odd column)
   for (let latticeRow = 0; latticeRow <= grid.rows * 2; latticeRow += 2) {
@@ -66,7 +67,7 @@ export function drawLatticeTrails(
       const yCenter = Math.floor((latticeRow / 2) * cellHeight);
       const xLeft = Math.floor(((latticeColumn - 1) / 2) * cellWidth);
 
-      context.fillStyle = "rgba(0,229,255,0.9)";
+      context.fillStyle = trailColor;
       context.fillRect(
         xLeft + 1,
         yCenter - Math.floor(edgeThickness / 2),
@@ -84,7 +85,7 @@ export function drawLatticeTrails(
       const xCenter = Math.floor((latticeColumn / 2) * cellWidth);
       const yTop = Math.floor(((latticeRow - 1) / 2) * cellHeight);
 
-      context.fillStyle = "rgba(0,229,255,0.9)";
+      context.fillStyle = trailColor;
       context.fillRect(
         xCenter - Math.floor(edgeThickness / 2),
         yTop + 1,
@@ -94,8 +95,8 @@ export function drawLatticeTrails(
     }
   }
 
-  // Vertices (even, even) as same-thickness squares (to join segments cleanly)
-  context.fillStyle = "rgba(0,229,255,0.9)";
+  // Vertices (even, even) to join segments cleanly
+  context.fillStyle = trailColor;
   for (let latticeRow = 0; latticeRow <= grid.rows * 2; latticeRow += 2) {
     for (let latticeColumn = 0; latticeColumn <= grid.columns * 2; latticeColumn += 2) {
       if (!lattice[latticeRow][latticeColumn]) continue;
@@ -114,7 +115,7 @@ export function drawLatticeTrails(
 }
 
 /**
- * Draw player head at the current lattice vertex (even, even).
+ * Draw a player head at the given lattice vertex (even, even).
  */
 export function drawHeadAtLatticeVertex(
   context: CanvasRenderingContext2D,
@@ -149,6 +150,9 @@ export function drawHeadAtLatticeVertex(
   );
 }
 
+/**
+ * Draw overlay with a few debug labels.
+ */
 export function drawOverlay(
   context: CanvasRenderingContext2D,
   grid: GridConfig,
@@ -168,38 +172,4 @@ export function drawOverlay(
     context.font = "bold 18px ui-monospace, Menlo, Consolas, monospace";
     context.fillText(message, 8, 88);
   }
-}
-
-/**
- * Compose a full frame (grid → lattice trails → head → overlay).
- */
-export function drawFrame(args: {
-  context: CanvasRenderingContext2D;
-  canvasWidth: number;
-  canvasHeight: number;
-  grid: GridConfig;
-  lattice: LatticeMatrix;
-  headLatticeIndex: LatticeIndex;
-  headColor: string;
-  tickCounterValue: number;
-  running: boolean;
-  message: string;
-}): void {
-  const {
-    context,
-    canvasWidth,
-    canvasHeight,
-    grid,
-    lattice,
-    headLatticeIndex,
-    headColor,
-    tickCounterValue,
-    running,
-    message,
-  } = args;
-
-  drawGrid(context, canvasWidth, canvasHeight, grid);
-  drawLatticeTrails(context, canvasWidth, canvasHeight, grid, lattice);
-  drawHeadAtLatticeVertex(context, canvasWidth, canvasHeight, grid, headLatticeIndex, headColor);
-  drawOverlay(context, grid, tickCounterValue, running, message);
 }
