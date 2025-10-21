@@ -1,33 +1,55 @@
 // src/utils/inputHandlers.ts
+import type { PlayerForInput } from "../types/player";
 
-import type { Direction } from "./latticeHelpers";
-
-/** Minimal player shape needed for input handling. */
-export interface PlayerForInput {
-  pendingDirection: Direction;
-}
-
-export type ResetRoundFunction = () => void;
-
-/**
- * Keyboard handler for a single player.
- * 'R' resets the round.
- */
 export function handleKeyDown(
   event: KeyboardEvent,
   playerRef: React.MutableRefObject<PlayerForInput>,
-  resetRound: ResetRoundFunction
+  resetRound: () => void
 ): void {
-  const key = event.key.toLowerCase();
+  const key = event.key; // e.g., "ArrowUp", "w", "W", "r"
+  let handled = false;
 
-  if (key === "r") {
-    resetRound();
-    return;
+  switch (key) {
+    case "ArrowUp":
+    case "w":
+    case "W":
+      playerRef.current.pendingDirection = "up";
+      handled = true;
+      break;
+
+    case "ArrowDown":
+    case "s":
+    case "S":
+      playerRef.current.pendingDirection = "down";
+      handled = true;
+      break;
+
+    case "ArrowLeft":
+    case "a":
+    case "A":
+      playerRef.current.pendingDirection = "left";
+      handled = true;
+      break;
+
+    case "ArrowRight":
+    case "d":
+    case "D":
+      playerRef.current.pendingDirection = "right";
+      handled = true;
+      break;
+
+    case "r":
+    case "R":
+      resetRound();
+      handled = true;
+      break;
+
+    default:
+      handled = false;
   }
 
-  // Arrow keys and WASD aliases
-  if (key === "arrowup" || key === "w") playerRef.current.pendingDirection = "up";
-  if (key === "arrowdown" || key === "s") playerRef.current.pendingDirection = "down";
-  if (key === "arrowleft" || key === "a") playerRef.current.pendingDirection = "left";
-  if (key === "arrowright" || key === "d") playerRef.current.pendingDirection = "right";
+  // Prevent the browser from scrolling the page when we handled the key
+  if (handled) {
+    event.preventDefault();
+  }
 }

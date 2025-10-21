@@ -6,11 +6,29 @@ html,
 body,
 #root {
   height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  margin: 0;
   background: #0b0b0b;
   color: #eaeaea;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  display: flex;
+  align-items: center;
+  /* centers vertically */
+  justify-content: center;
+  /* centers horizontally */
+  overscroll-behavior: none;
+}
+
+/* Optional: smooth appearance for canvas area */
+#root>div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 900px;
+  padding: 16px;
 }

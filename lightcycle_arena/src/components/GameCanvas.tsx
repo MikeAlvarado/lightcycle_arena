@@ -25,6 +25,8 @@ import {
   AI_PARAMS,
   type AiDifficulty,
 } from '../ai/simpleAI';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { DPadOverlay } from './DPadOverlay';
 
 /**
  * GameCanvas — Two Players (Human + Simple AI) on 2x Lattice
@@ -103,6 +105,8 @@ export function GameCanvas(): JSX.Element {
 
   // Difficulty (can be moved to HUD later)
   const botDifficulty: AiDifficulty = 'Hard';
+
+  const isMobile = useIsMobile();
 
   // ---------- reset ----------
   const resetRound = useCallback((): void => {
@@ -330,10 +334,20 @@ export function GameCanvas(): JSX.Element {
     return () => window.removeEventListener('keydown', keydownHandler);
   }, [resetRound]);
 
+  function handleTouchDirection(
+    direction: 'up' | 'down' | 'left' | 'right'
+  ): void {
+    // Buffer the input like keyboard does
+    playerOneRef.current.pendingDirection = direction;
+    // If the round had ended and user touches the dpad, you can optionally restart:
+    // if (!gameIsRunningRef.current) resetRound();
+  }
+
   // ---------- render ----------
   return (
     <div style={{ width: '100%', border: '1px solid #222', borderRadius: 8 }}>
       <canvas ref={canvasReference} />
+      {isMobile && <DPadOverlay onInput={handleTouchDirection} onReset={resetRound}/>}
     </div>
   );
 }
