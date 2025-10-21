@@ -1,3 +1,4 @@
+/* RESET & BASE */
 * {
   box-sizing: border-box;
 }
@@ -14,21 +15,74 @@ body,
 body {
   background: #0b0b0b;
   color: #eaeaea;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  display: flex;
-  align-items: center;
-  /* centers vertically */
-  justify-content: center;
-  /* centers horizontally */
-  overscroll-behavior: none;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
 }
 
-/* Optional: smooth appearance for canvas area */
-#root>div {
+/* ===== Desktop ===== */
+.game-stage {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.hud-zone {
+  flex: 1;
+  min-height: 20vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  max-width: 900px;
-  padding: 16px;
+  padding: 12px;
+  border-bottom: 1px solid #222;
+}
+
+.canvas-zone {
+  flex: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid #222;
+  border-radius: 12px;
+  margin: 8px;
+}
+
+.canvas-zone canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+
+/* ===== Mobile ===== */
+@media (pointer: coarse),
+(max-width: 768px) {
+  .mobile-stage {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  .hud-zone {
+    flex: 0 0 auto;
+    padding: 6px;
+    border: none;
+  }
+
+  .canvas-zone {
+    flex: 1 1 50%;
+    min-height: 45vh;
+    border-radius: 8px;
+    margin: 4px;
+  }
+
+  .controls-zone {
+    flex: 1 1 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+  }
 }

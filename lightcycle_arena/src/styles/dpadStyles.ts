@@ -1,55 +1,49 @@
-// src/styles/dpadStyles.ts
+import type { CSSProperties } from "react";
 
 /**
- * Centralized style definitions for the DPadOverlay component.
- * These are simple React CSSProperties exported as constants
- * for clarity and reusability.
+ * Fills the parent "controls-zone" (mobile bottom area).
+ * The parent already uses flex to size itself, so we just fill it
+ * and center the pad with CSS grid.
  */
-
-import { CSSProperties } from "react";
-
-export const dPadWrapperStyle: CSSProperties = {
-  position: "fixed",
-  left: 0,
-  right: 0,
-  bottom: 0,
-  width: "100vw",
-  height: "50vh", // half the viewport height
+export const dPadFillWrapperStyle: CSSProperties = {
+  position: "relative",
+  width: "100%",
+  height: "100%",
   display: "grid",
   placeItems: "center",
-  padding: 12,
-  background:
-    "linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0.25) 60%, rgba(0,0,0,0))",
-  zIndex: 10,
-  touchAction: "manipulation",
+  padding: 8,
+
+  background: "#0e0e0e",
 };
 
+/** Square pad grid that scales but never overflows its parent */
 export const dPadContainerStyle: CSSProperties = {
-  width: "min(80vw, 480px)",
+  width: "clamp(220px, 70vw, 360px)",
   aspectRatio: "1 / 1",
+  maxHeight: "92%",
   display: "grid",
   gridTemplateColumns: "repeat(3, 1fr)",
   gridTemplateRows: "repeat(3, 1fr)",
-  gap: 12,
-  opacity: 0.95,
+  gap: "clamp(8px, 2.5vh, 14px)",
+  opacity: 0.96,
 };
 
 export const buttonStyle: CSSProperties = {
-  borderRadius: 16,
-  border: "1px solid rgba(255,255,255,0.2)",
-  background: "rgba(30,30,30,0.9)",
-  boxShadow: "0 2px 12px rgba(0,0,0,0.35) inset, 0 6px 18px rgba(0,0,0,0.35)",
+  borderRadius: 14,
+  border: "1px solid #3a3a3a",
+  background: "#1f1f1f",
+  boxShadow: "inset 0 2px 6px rgba(0,0,0,0.35)",
   display: "grid",
   placeItems: "center",
   fontSize: 18,
-  color: "#e7f0ff",
+  color: "#f0f4ff",
   userSelect: "none",
   WebkitTapHighlightColor: "transparent",
 };
 
 export const labelStyle: CSSProperties = {
-  opacity: 0.8,
-  fontWeight: 600,
+  opacity: 0.9,
+  fontWeight: 700,
 };
 
 export const centerCellContainerStyle: CSSProperties = {
@@ -61,14 +55,12 @@ export const resetButtonStyle: CSSProperties = {
   width: "70%",
   aspectRatio: "1 / 1",
   borderRadius: "9999px",
-  border: "1px solid rgba(255,255,255,0.25)",
-  background:
-    "radial-gradient(circle at 35% 35%, rgba(255,255,255,0.12), rgba(0,0,0,0.35))",
-  boxShadow:
-    "inset 0 4px 10px rgba(0,0,0,0.45), 0 6px 18px rgba(0,0,0,0.35)",
+  border: "1px solid #3a3a3a",
+  background: "#2a2a2a",
+  boxShadow: "inset 0 4px 10px rgba(0,0,0,0.45)",
   display: "grid",
   placeItems: "center",
-  color: "#ffcccc",
+  color: "#f0f4ff",
   fontWeight: 700,
   fontSize: 16,
   userSelect: "none",

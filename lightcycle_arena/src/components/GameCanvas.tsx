@@ -1,5 +1,3 @@
-// src/components/GameCanvas.tsx
-import type { MutableRefObject } from "react";
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { GRID_CONFIG, type GridConfig } from '../utils/gridConfig';
 import {
@@ -28,21 +26,16 @@ import {
 } from '../ai/simpleAI';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { DPadOverlay } from './DPadOverlay';
-import "../styles/gameCanvasOverlay.css";
+import '../styles/gameCanvasOverlay.css';
+import '../styles/gameUI.css'; // we reuse HUD styles, but as overlay
 
-
-/**
- * GameCanvas — Two Players (Human + Simple AI) on 2x Lattice
- * - Separate lattices for rendering (per player color).
- * - One occupancy lattice for collisions and AI safety checks.
- */
 export function GameCanvas(): JSX.Element {
   // Canvas & loop
   const canvasReference = useRef<HTMLCanvasElement | null>(null);
   const requestIdReference = useRef<number>(0);
   const lastFrameTimestamp = useRef<number>(0);
   const accumulatedMilliseconds = useRef<number>(0);
-  const logicStepMilliseconds = 100; // 10 updates per second
+  const logicStepMilliseconds = 100;
   const tickCounterRef = useRef<number>(0);
 
   // Grid
@@ -62,60 +55,58 @@ export function GameCanvas(): JSX.Element {
     createEmptyLattice(gridRef.current.rows, gridRef.current.columns)
   );
 
-  // Game state
-  const gameIsRunningRef = useRef<boolean>(true);
-  const resultMessageRef = useRef<string>('');
+  // HUD state (placeholder demo values)
+  const [score, setScore] = useState(0);
+  const [lives] = useState(3);
+  const [highScore] = useState(2000);
+
+  // UI overlay message
   const [overlayMessage, setOverlayMessage] = useState<string | null>(null);
+  const gameIsRunningRef = useRef<boolean>(true);
 
-
-  // Spawn positions (memo to keep stable references)
-  const initialLogicalVertex: LogicalVertex = useMemo(
+  // Spawns
+  const playerSpawn: LogicalVertex = useMemo(
     () => ({
-      columnIndexInCells: Math.floor(gridRef.current.columns / 2), // middle horizontally
-      rowIndexInCells: gridRef.current.rows - 6, // bottom area
+      columnIndexInCells: Math.floor(gridRef.current.columns / 2),
+      rowIndexInCells: gridRef.current.rows - 6,
     }),
     []
   );
-  const botSpawnLogicalVertex: LogicalVertex = useMemo(
+  const botSpawn: LogicalVertex = useMemo(
     () => ({
-      columnIndexInCells: Math.floor(gridRef.current.columns / 2), // middle horizontally
-      rowIndexInCells: 6, // top area
+      columnIndexInCells: Math.floor(gridRef.current.columns / 2),
+      rowIndexInCells: 6,
     }),
     []
   );
 
-  // Human player
+  // Players
   const playerOneRef = useRef<Player>({
     id: 1,
     name: 'Player One',
     color: 'yellow',
-    headLatticeIndex: toLatticeVertexIndices(initialLogicalVertex),
+    headLatticeIndex: toLatticeVertexIndices(playerSpawn),
     direction: 'up',
     pendingDirection: 'up',
     isAlive: true,
     ticksSurvived: 0,
   });
-
-  // AI player
   const playerTwoRef = useRef<Player>({
     id: 2,
     name: 'Bot',
     color: 'blue',
-    headLatticeIndex: toLatticeVertexIndices(botSpawnLogicalVertex),
+    headLatticeIndex: toLatticeVertexIndices(botSpawn),
     direction: 'down',
     pendingDirection: 'down',
     isAlive: true,
     ticksSurvived: 0,
   });
 
-  // Difficulty (can be moved to HUD later)
   const botDifficulty: AiDifficulty = 'Hard';
-
   const isMobile = useIsMobile();
 
-  // ---------- reset ----------
+  // Reset
   const resetRound = useCallback((): void => {
-    // Lattices
     occupancyLatticeRef.current = createEmptyLattice(
       gridRef.current.rows,
       gridRef.current.columns
@@ -129,42 +120,32 @@ export function GameCanvas(): JSX.Element {
       gridRef.current.columns
     );
 
-    // Human
-    playerOneRef.current.headLatticeIndex =
-      toLatticeVertexIndices(initialLogicalVertex);
+    playerOneRef.current.headLatticeIndex = toLatticeVertexIndices(playerSpawn);
     playerOneRef.current.direction = 'up';
     playerOneRef.current.pendingDirection = 'up';
     playerOneRef.current.isAlive = true;
     playerOneRef.current.ticksSurvived = 0;
 
-    // Bot
-    playerTwoRef.current.headLatticeIndex = toLatticeVertexIndices(
-      botSpawnLogicalVertex
-    );
+    playerTwoRef.current.headLatticeIndex = toLatticeVertexIndices(botSpawn);
     playerTwoRef.current.direction = 'down';
     playerTwoRef.current.pendingDirection = 'down';
     playerTwoRef.current.isAlive = true;
     playerTwoRef.current.ticksSurvived = 0;
 
-    // Game state
-    setOverlayMessage(null);
     gameIsRunningRef.current = true;
-    resultMessageRef.current = '';
+    setOverlayMessage(null);
     tickCounterRef.current = 0;
+    setScore(0);
+  }, [playerSpawn, botSpawn]);
 
-    // Prevent old key inputs from persisting
-    window.focus();
-  }, [initialLogicalVertex, botSpawnLogicalVertex]);
-
-  // ---------- logic ----------
-  function moveOnePlayer(playerRef: MutableRefObject<Player>): void {
+  // Logic
+  function moveOnePlayer(playerRef: React.MutableRefObject<Player>): void {
     applyPendingDirection(playerRef);
 
     const fromVertex = playerRef.current.headLatticeIndex;
     const { traversedEdgeCellInLattice, destinationVertexInLattice } =
       stepOnLattice(fromVertex, playerRef.current.direction);
 
-    // Bounds or collision against global occupancy
     if (
       !isInsideLattice(traversedEdgeCellInLattice, gridRef.current) ||
       !isInsideLattice(destinationVertexInLattice, gridRef.current) ||
@@ -175,19 +156,16 @@ export function GameCanvas(): JSX.Element {
       return;
     }
 
-    // Leave global trail (for collisions)
     occupy(occupancyLatticeRef.current, fromVertex);
     occupy(occupancyLatticeRef.current, traversedEdgeCellInLattice);
 
-    // Leave per-player trail (for colored rendering)
-    const perPlayerLattice =
+    const perPlayer =
       playerRef.current.id === 1
         ? playerOneLatticeRef.current
         : playerTwoLatticeRef.current;
-    occupy(perPlayerLattice, fromVertex);
-    occupy(perPlayerLattice, traversedEdgeCellInLattice);
+    occupy(perPlayer, fromVertex);
+    occupy(perPlayer, traversedEdgeCellInLattice);
 
-    // Advance head
     playerRef.current.headLatticeIndex = destinationVertexInLattice;
     playerRef.current.ticksSurvived += 1;
   }
@@ -195,20 +173,15 @@ export function GameCanvas(): JSX.Element {
   function updateLogic(): void {
     if (!gameIsRunningRef.current) return;
 
-    // 1) Human moves first
-    if (playerOneRef.current.isAlive) {
-      moveOnePlayer(playerOneRef);
-    }
-
-    // If human crashed, end if bot still alive
+    // Human
+    if (playerOneRef.current.isAlive) moveOnePlayer(playerOneRef);
     if (!playerOneRef.current.isAlive) {
       gameIsRunningRef.current = false;
-      resultMessageRef.current = 'Bot wins! You crashed.';
-      setOverlayMessage(resultMessageRef.current);
+      setOverlayMessage('Bot wins! You crashed.');
       return;
     }
 
-    // 2) AI decision cadence
+    // AI
     const params = AI_PARAMS[botDifficulty];
     if (
       playerTwoRef.current.isAlive &&
@@ -216,44 +189,54 @@ export function GameCanvas(): JSX.Element {
     ) {
       const aiView = {
         grid: gridRef.current,
-        lattice: occupancyLatticeRef.current, // safety checks use the global occupancy
+        lattice: occupancyLatticeRef.current,
         self: playerTwoRef.current,
         opponent: playerOneRef.current,
       };
-      const nextDirection = decideNextDirection(aiView, botDifficulty);
-      playerTwoRef.current.pendingDirection = nextDirection;
+      playerTwoRef.current.pendingDirection = decideNextDirection(
+        aiView,
+        botDifficulty
+      );
     }
+    if (playerTwoRef.current.isAlive) moveOnePlayer(playerTwoRef);
 
-    // 3) Bot moves
-    if (playerTwoRef.current.isAlive) {
-      moveOnePlayer(playerTwoRef);
-    }
-
-    // If bot crashed, end with human victory
     if (!playerTwoRef.current.isAlive) {
       gameIsRunningRef.current = false;
-      resultMessageRef.current = 'You win! The bot crashed.';
-      setOverlayMessage(resultMessageRef.current); 
+      setOverlayMessage('You win! The bot crashed.');
       return;
     }
 
-    // Tick++
     tickCounterRef.current += 1;
+    // Basic demo scoring: +10 per logic step second (approx)
+    if (tickCounterRef.current % 10 === 0) setScore((s) => s + 10);
   }
 
-  // ---------- Effect A: canvas, resize, RAF ----------
-  useEffect(() => {
-    const canvasElement = canvasReference.current!;
-    const context = canvasElement.getContext('2d') as CanvasRenderingContext2D;
+  // Resize to parent
+  const resizeCanvasKeepingGridAspect = useCallback(() => {
+    const canvas = canvasReference.current!;
+    const parent = canvas.parentElement as HTMLElement;
+    const aspect = gridRef.current.rows / gridRef.current.columns;
 
-    function resizeCanvasKeepingGridAspect(): void {
-      const aspectRatio = gridRef.current.rows / gridRef.current.columns;
-      const parent = canvasElement.parentElement as HTMLElement;
-      const targetWidth = Math.min(parent.clientWidth, 900);
-      const targetHeight = Math.floor(targetWidth * aspectRatio);
-      canvasElement.width = targetWidth;
-      canvasElement.height = targetHeight;
-    }
+    const availableWidth = parent.clientWidth;
+    const availableHeight = parent.clientHeight;
+
+    let targetWidth = Math.min(
+      availableWidth,
+      Math.floor(availableHeight / aspect)
+    );
+    let targetHeight = Math.floor(targetWidth * aspect);
+
+    targetWidth = Math.max(240, targetWidth);
+    targetHeight = Math.max(180, targetHeight);
+
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+  }, []);
+
+  // Effect A
+  useEffect(() => {
+    const canvas = canvasReference.current!;
+    const context = canvas.getContext('2d') as CanvasRenderingContext2D;
 
     function animationLoop(currentTimestamp: number): void {
       if (!lastFrameTimestamp.current)
@@ -268,73 +251,70 @@ export function GameCanvas(): JSX.Element {
         accumulatedMilliseconds.current -= logicStepMilliseconds;
       }
 
-      // ----- Drawing (grid → trails by player → heads → overlay) -----
-      drawGrid(
-        context,
-        canvasElement.width,
-        canvasElement.height,
-        gridRef.current
-      );
+      drawGrid(context, canvas.width, canvas.height, gridRef.current);
       drawLatticeTrails(
         context,
-        canvasElement.width,
-        canvasElement.height,
+        canvas.width,
+        canvas.height,
         gridRef.current,
         playerOneLatticeRef.current,
         playerOneRef.current.color
       );
       drawLatticeTrails(
         context,
-        canvasElement.width,
-        canvasElement.height,
+        canvas.width,
+        canvas.height,
         gridRef.current,
         playerTwoLatticeRef.current,
         playerTwoRef.current.color
       );
       drawHeadAtLatticeVertex(
         context,
-        canvasElement.width,
-        canvasElement.height,
+        canvas.width,
+        canvas.height,
         gridRef.current,
         playerOneRef.current.headLatticeIndex,
         playerOneRef.current.color
       );
       drawHeadAtLatticeVertex(
         context,
-        canvasElement.width,
-        canvasElement.height,
+        canvas.width,
+        canvas.height,
         gridRef.current,
         playerTwoRef.current.headLatticeIndex,
         playerTwoRef.current.color
       );
+
+      // Optional debug overlay drawn on canvas
       drawOverlay(
         context,
         gridRef.current,
         tickCounterRef.current,
         gameIsRunningRef.current,
-        resultMessageRef.current
+        overlayMessage ?? ''
       );
 
       requestIdReference.current = requestAnimationFrame(animationLoop);
     }
 
     resizeCanvasKeepingGridAspect();
-    window.addEventListener('resize', resizeCanvasKeepingGridAspect);
+    const onResize = () => resizeCanvasKeepingGridAspect();
+    window.addEventListener('resize', onResize);
     requestIdReference.current = requestAnimationFrame(animationLoop);
 
     return () => {
       cancelAnimationFrame(requestIdReference.current);
-      window.removeEventListener('resize', resizeCanvasKeepingGridAspect);
+      window.removeEventListener('resize', onResize);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [resizeCanvasKeepingGridAspect, overlayMessage]);
 
-  // ---------- Effect B: INPUTS ----------
+  // Effect B: inputs
   useEffect(() => {
     function keydownHandler(event: KeyboardEvent): void {
       handleKeyDownBase(
         event,
-        playerOneRef as MutableRefObject<PlayerForInput>,
+        playerOneRef as React.MutableRefObject<PlayerForInput>,
         resetRound
       );
     }
@@ -345,31 +325,100 @@ export function GameCanvas(): JSX.Element {
   function handleTouchDirection(
     direction: 'up' | 'down' | 'left' | 'right'
   ): void {
-    // Buffer the input like keyboard does
     playerOneRef.current.pendingDirection = direction;
-    // If the round had ended and user touches the dpad, you can optionally restart:
-    // if (!gameIsRunningRef.current) resetRound();
   }
 
-  // ---------- render ----------
-return (
-  <div style={{ position: "relative", width: "100%", border: "1px solid #222", borderRadius: 8 }}>
-    <canvas ref={canvasReference} />
-    
-      {overlayMessage && (
-        <div className="canvas-overlay">
-          <h2>{overlayMessage}</h2>
-          <p>Press R or tap Reset to play again</p>
-          <button onClick={resetRound}>Reset</button>
+  // HUD overlay node (does not consume layout height)
+  const hearts = '❤'.repeat(lives).padEnd(3, '♡');
+  const formattedScore = score.toString().padStart(8, '0');
+  const formattedHighScore = highScore.toString().padStart(8, '0');
+
+  function HudOverlay() {
+    return (
+      <div className='game-ui hud-overlay'>
+        <h1 className='game-title'>Lightcycle Arena</h1>
+        <div className='hud-container'>
+          <div className='hud-row'>
+            <span className='hud-lives'>Lives: {hearts}</span>
+            <span className='hud-highscore-label'>High Score</span>
+          </div>
+          <div className='hud-row'>
+            <span className='hud-score'>Score: {formattedScore}</span>
+            <span className='hud-highscore-value'>{formattedHighScore}</span>
+          </div>
         </div>
-      )}
+      </div>
+    );
+  }
 
+  // Render
+  // inside GameCanvas component
+  return isMobile ? (
+    <div className='mobile-stage'>
+      {/* HUD stays visible on top */}
+      <div className='hud-zone'>
+        <div className='game-ui'>
+          <h1 className='game-title'>Lightcycle Arena</h1>
+          <div className='hud-container'>
+            <div className='hud-row'>
+              <span className='hud-lives'>Lives: {'❤'.repeat(3)}</span>
+              <span className='hud-highscore-label'>High Score</span>
+            </div>
+            <div className='hud-row'>
+              <span className='hud-score'>Score: 00000000</span>
+              <span className='hud-highscore-value'>00002000</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
-      {/* Mobile D-Pad (half screen, fixed at bottom) */}
-      {isMobile && (
+      {/* Canvas zone (50%) */}
+      <div className='canvas-zone'>
+        <canvas ref={canvasReference} />
+        {overlayMessage && (
+          <div className='canvas-overlay'>
+            <h2>{overlayMessage}</h2>
+            <p>Press R or tap Reset to play again</p>
+            <button onClick={resetRound}>Reset</button>
+          </div>
+        )}
+      </div>
+
+      {/* DPad zone (remaining 50%) */}
+      <div className='controls-zone'>
         <DPadOverlay onInput={handleTouchDirection} onReset={resetRound} />
-      )}
-  </div>
-);
+      </div>
+    </div>
+  ) : (
+    <div className='game-stage'>
+      {/* HUD (2/8 height) */}
+      <div className='hud-zone'>
+        <div className='game-ui'>
+          <h1 className='game-title'>Lightcycle Arena</h1>
+          <div className='hud-container'>
+            <div className='hud-row'>
+              <span className='hud-lives'>Lives: {'❤'.repeat(3)}</span>
+              <span className='hud-highscore-label'>High Score</span>
+            </div>
+            <div className='hud-row'>
+              <span className='hud-score'>Score: 00000000</span>
+              <span className='hud-highscore-value'>00002000</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
+      {/* Canvas (6/8 height) */}
+      <div className='canvas-zone'>
+        <canvas ref={canvasReference} />
+        {overlayMessage && (
+          <div className='canvas-overlay'>
+            <h2>{overlayMessage}</h2>
+            <p>Press R or tap Reset to play again</p>
+            <button onClick={resetRound}>Reset</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

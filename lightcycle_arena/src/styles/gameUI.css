@@ -2,37 +2,24 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   text-align: center;
-
   width: 100%;
   max-width: 900px;
-  padding: 16px 12px;
-  background: #111;
-  border: 3px solid #3a3a3a;
-  border-radius: 6px;
-  box-shadow: 0 4px 18px rgba(0, 255, 255, 0.2);
 }
 
 .game-title {
-  font-family: "Orbitron", system-ui, monospace;
-  font-size: 1.8rem;
-  font-weight: 700;
-  color: #00baff;
-  /* neon blue */
-  text-transform: uppercase;
-  letter-spacing: 1px;
+  font-size: 1.6rem;
+  font-weight: 800;
   margin: 4px 0 10px 0;
-  text-shadow: 0 0 6px #00baff, 0 0 20px rgba(0, 150, 255, 0.4);
+  color: #eaf2ff;
 }
 
 .hud-container {
+  width: 100%;
+  max-width: 520px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  max-width: 420px;
-  margin-top: 4px;
+  gap: 6px;
 }
 
 .hud-row {
@@ -41,24 +28,23 @@
   align-items: center;
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 1rem;
-  color: #00aaff;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
+  color: #cfe4ff;
 }
 
 .hud-lives {
-  color: #00baff;
+  color: #ffd1d1;
 }
 
 .hud-score {
-  color: #00baff;
+  color: #ffe8a0;
 }
 
 .hud-highscore-label,
 .hud-highscore-value {
-  color: #00baff;
+  color: #cfe4ff;
 }
 
 .hud-highscore-value {
   font-weight: 700;
-  text-shadow: 0 0 6px #00baff;
 }
