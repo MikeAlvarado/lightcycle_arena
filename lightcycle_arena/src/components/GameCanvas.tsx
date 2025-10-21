@@ -1,5 +1,6 @@
 // src/components/GameCanvas.tsx
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import type { MutableRefObject } from "react";
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { GRID_CONFIG, type GridConfig } from '../utils/gridConfig';
 import {
   createEmptyLattice,
@@ -27,6 +28,8 @@ import {
 } from '../ai/simpleAI';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { DPadOverlay } from './DPadOverlay';
+import "../styles/gameCanvasOverlay.css";
+
 
 /**
  * GameCanvas — Two Players (Human + Simple AI) on 2x Lattice
@@ -62,6 +65,8 @@ export function GameCanvas(): JSX.Element {
   // Game state
   const gameIsRunningRef = useRef<boolean>(true);
   const resultMessageRef = useRef<string>('');
+  const [overlayMessage, setOverlayMessage] = useState<string | null>(null);
+
 
   // Spawn positions (memo to keep stable references)
   const initialLogicalVertex: LogicalVertex = useMemo(
@@ -142,6 +147,7 @@ export function GameCanvas(): JSX.Element {
     playerTwoRef.current.ticksSurvived = 0;
 
     // Game state
+    setOverlayMessage(null);
     gameIsRunningRef.current = true;
     resultMessageRef.current = '';
     tickCounterRef.current = 0;
@@ -151,7 +157,7 @@ export function GameCanvas(): JSX.Element {
   }, [initialLogicalVertex, botSpawnLogicalVertex]);
 
   // ---------- logic ----------
-  function moveOnePlayer(playerRef: React.MutableRefObject<Player>): void {
+  function moveOnePlayer(playerRef: MutableRefObject<Player>): void {
     applyPendingDirection(playerRef);
 
     const fromVertex = playerRef.current.headLatticeIndex;
@@ -198,6 +204,7 @@ export function GameCanvas(): JSX.Element {
     if (!playerOneRef.current.isAlive) {
       gameIsRunningRef.current = false;
       resultMessageRef.current = 'Bot wins! You crashed.';
+      setOverlayMessage(resultMessageRef.current);
       return;
     }
 
@@ -226,6 +233,7 @@ export function GameCanvas(): JSX.Element {
     if (!playerTwoRef.current.isAlive) {
       gameIsRunningRef.current = false;
       resultMessageRef.current = 'You win! The bot crashed.';
+      setOverlayMessage(resultMessageRef.current); 
       return;
     }
 
@@ -326,7 +334,7 @@ export function GameCanvas(): JSX.Element {
     function keydownHandler(event: KeyboardEvent): void {
       handleKeyDownBase(
         event,
-        playerOneRef as React.MutableRefObject<PlayerForInput>,
+        playerOneRef as MutableRefObject<PlayerForInput>,
         resetRound
       );
     }
@@ -344,10 +352,24 @@ export function GameCanvas(): JSX.Element {
   }
 
   // ---------- render ----------
-  return (
-    <div style={{ width: '100%', border: '1px solid #222', borderRadius: 8 }}>
-      <canvas ref={canvasReference} />
-      {isMobile && <DPadOverlay onInput={handleTouchDirection} onReset={resetRound}/>}
-    </div>
-  );
+return (
+  <div style={{ position: "relative", width: "100%", border: "1px solid #222", borderRadius: 8 }}>
+    <canvas ref={canvasReference} />
+    
+      {overlayMessage && (
+        <div className="canvas-overlay">
+          <h2>{overlayMessage}</h2>
+          <p>Press R or tap Reset to play again</p>
+          <button onClick={resetRound}>Reset</button>
+        </div>
+      )}
+
+
+      {/* Mobile D-Pad (half screen, fixed at bottom) */}
+      {isMobile && (
+        <DPadOverlay onInput={handleTouchDirection} onReset={resetRound} />
+      )}
+  </div>
+);
+
 }

@@ -1,22 +1,11 @@
+import { GameUI } from "./components/GameUI";
 import { GameCanvas } from "./components/GameCanvas";
 
-/**
- * App
- * ---
- * Root component that renders the Lightcycle Arena canvas.
- */
-function App(): JSX.Element {
+export default function App() {
   return (
-    <main className="app-root">
-      <header className="app-header">
-        <h1 className="app-title">Lightcycle Arena</h1>
-      </header>
-
-      <section className="app-stage">
-        <GameCanvas />
-      </section>
-    </main>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+      <GameUI score={0} lives={3} highScore={2000} />
+      <GameCanvas />
+    </div>
   );
 }
-
-export default App;
