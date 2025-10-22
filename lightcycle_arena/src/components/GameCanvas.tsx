@@ -27,15 +27,33 @@ import {
 import { useIsMobile } from '../hooks/useIsMobile';
 import { DPadOverlay } from './DPadOverlay';
 import '../styles/gameCanvasOverlay.css';
-import '../styles/gameUI.css'; // we reuse HUD styles, but as overlay
+import '../styles/gameUI.css';
+import type { HighScoreEntry } from '../types/game';
+import { GameOverlay } from './GameOverlay';
+
+import type { GameState } from '../types/game';
+import {
+  INITIAL_LIVES,
+  LEVEL_COUNT,
+  difficultyForLevel,
+  bonusForLevel,
+  pointsPerSecond,
+} from '../config/levels';
+import {
+  loadPlayerName,
+  savePlayerName,
+  loadHighScores,
+  tryInsertHighScore,
+  loadHighScoreMax,
+} from '../utils/storage';
 
 export function GameCanvas(): JSX.Element {
-  // Canvas & loop
+  // Loop timing
   const canvasReference = useRef<HTMLCanvasElement | null>(null);
   const requestIdReference = useRef<number>(0);
   const lastFrameTimestamp = useRef<number>(0);
   const accumulatedMilliseconds = useRef<number>(0);
-  const logicStepMilliseconds = 100;
+  const logicStepMilliseconds = 100; // 10 Hz
   const tickCounterRef = useRef<number>(0);
 
   // Grid
@@ -55,14 +73,24 @@ export function GameCanvas(): JSX.Element {
     createEmptyLattice(gridRef.current.rows, gridRef.current.columns)
   );
 
-  // HUD state (placeholder demo values)
-  const [score, setScore] = useState(0);
-  const [lives] = useState(3);
-  const [highScore] = useState(2000);
+  // Game meta
+  const [gameState, setGameState] = useState<GameState>('menu');
+  const [level, setLevel] = useState<number>(1);
+  const [lives, setLives] = useState<number>(INITIAL_LIVES);
+  const [score, setScore] = useState<number>(0);
+  const [highScore, setHighScore] = useState<number>(loadHighScoreMax());
+  const [playerName, setPlayerName] = useState<string | null>(loadPlayerName());
+  const [leaderboard, setLeaderboard] = useState<HighScoreEntry[]>(() =>
+    loadHighScores()
+  );
 
-  // UI overlay message
   const [overlayMessage, setOverlayMessage] = useState<string | null>(null);
-  const gameIsRunningRef = useRef<boolean>(true);
+  // Razón del fin de la run (solo para el overlay final)
+  const gameOverReasonRef = useRef<'victory' | 'outOfLives' | 'none'>('none');
+
+  // Evitar doble guardado al final de la run
+  const savedThisRunRef = useRef<boolean>(false);
+  const isMobile = useIsMobile();
 
   // Spawns
   const playerSpawn: LogicalVertex = useMemo(
@@ -102,10 +130,10 @@ export function GameCanvas(): JSX.Element {
     ticksSurvived: 0,
   });
 
-  const botDifficulty: AiDifficulty = 'Hard';
-  const isMobile = useIsMobile();
+  // Difficulty by level
+  const currentDifficulty = (): AiDifficulty => difficultyForLevel(level);
 
-  // Reset
+  // Round reset (keeps lives/level/score)
   const resetRound = useCallback((): void => {
     occupancyLatticeRef.current = createEmptyLattice(
       gridRef.current.rows,
@@ -132,13 +160,21 @@ export function GameCanvas(): JSX.Element {
     playerTwoRef.current.isAlive = true;
     playerTwoRef.current.ticksSurvived = 0;
 
-    gameIsRunningRef.current = true;
     setOverlayMessage(null);
+    savedThisRunRef.current = false;
     tickCounterRef.current = 0;
-    setScore(0);
   }, [playerSpawn, botSpawn]);
 
-  // Logic
+  // New run (after gameOver)
+  const startNewRun = useCallback((): void => {
+    setLevel(1);
+    setLives(INITIAL_LIVES);
+    setScore(0);
+    setGameState('playing');
+    resetRound();
+  }, [resetRound]);
+
+  // Movement
   function moveOnePlayer(playerRef: React.MutableRefObject<Player>): void {
     applyPendingDirection(playerRef);
 
@@ -170,19 +206,83 @@ export function GameCanvas(): JSX.Element {
     playerRef.current.ticksSurvived += 1;
   }
 
-  function updateLogic(): void {
-    if (!gameIsRunningRef.current) return;
+  // Round end flow (win/lose) — saves score in roundEnd only
+  function endRoundWithResult(roundOutcome: 'win' | 'lose'): void {
+    if (roundOutcome === 'win') {
+      setScore((previousScore) => previousScore + bonusForLevel(level));
+      setOverlayMessage('You win! Level cleared.');
+    } else {
+      setOverlayMessage('Bot wins! You crashed.');
+    }
 
-    // Human
+    // Transition to roundEnd (the run is still ongoing)
+    setGameState('roundEnd');
+  }
+
+  /**
+   * Finalizes the full run (after losing all lives or clearing all levels).
+   * It asks for the player's name (if missing) and saves their high score locally.
+   */
+  function finalizeRunAndSave(runResult: 'victory' | 'outOfLives'): void {
+    // Prevent duplicate saving or prompts
+    if (savedThisRunRef.current) return;
+    savedThisRunRef.current = true;
+    gameOverReasonRef.current = runResult;
+
+    let currentPlayerName = playerName;
+
+    // Ask for player name only if it doesn't exist
+    if (!currentPlayerName) {
+      const enteredName = window
+        .prompt('Enter your name to save the score:', '')
+        ?.trim();
+      if (enteredName && enteredName.length > 0) {
+        currentPlayerName = enteredName.slice(0, 20);
+        setPlayerName(currentPlayerName);
+        savePlayerName(currentPlayerName);
+      }
+    }
+
+    // Save score if player name is available
+    if (currentPlayerName) {
+      const finalScoreValue = score; // level bonus already included earlier if win
+      const updatedHighScores = tryInsertHighScore({
+        name: currentPlayerName,
+        score: finalScoreValue,
+        dateISO: new Date().toISOString(),
+      });
+
+      // Update local states so UI reflects the latest leaderboard without reload
+      setLeaderboard(updatedHighScores);
+
+      const highestScore = updatedHighScores.length
+        ? Math.max(...updatedHighScores.map((entry) => entry.score))
+        : 0;
+      setHighScore(highestScore);
+    }
+
+    // Show proper overlay depending on run result
+    if (runResult === 'victory') {
+      setOverlayMessage('Run Complete! Champion.');
+    } else {
+      setOverlayMessage('Game Over');
+    }
+    setGameState('gameOver');
+  }
+
+  // Per-tick logic
+  function updateLogic(): void {
+    if (gameState !== 'playing') return;
+
+    // Player
     if (playerOneRef.current.isAlive) moveOnePlayer(playerOneRef);
     if (!playerOneRef.current.isAlive) {
-      gameIsRunningRef.current = false;
-      setOverlayMessage('Bot wins! You crashed.');
+      endRoundWithResult('lose');
       return;
     }
 
-    // AI
-    const params = AI_PARAMS[botDifficulty];
+    // Bot decision cadence by difficulty
+    const params = AI_PARAMS[currentDifficulty()];
     if (
       playerTwoRef.current.isAlive &&
       tickCounterRef.current % params.decisionEveryNTicks === 0
@@ -195,23 +295,26 @@ export function GameCanvas(): JSX.Element {
       };
       playerTwoRef.current.pendingDirection = decideNextDirection(
         aiView,
-        botDifficulty
+        currentDifficulty()
       );
     }
-    if (playerTwoRef.current.isAlive) moveOnePlayer(playerTwoRef);
 
+    // Bot move
+    if (playerTwoRef.current.isAlive) moveOnePlayer(playerTwoRef);
     if (!playerTwoRef.current.isAlive) {
-      gameIsRunningRef.current = false;
-      setOverlayMessage('You win! The bot crashed.');
+      endRoundWithResult('win');
       return;
     }
 
     tickCounterRef.current += 1;
-    // Basic demo scoring: +10 per logic step second (approx)
-    if (tickCounterRef.current % 10 === 0) setScore((s) => s + 10);
+
+if (tickCounterRef.current % 10 === 0) {
+  setScore((previousScore) => previousScore + pointsPerSecond(level));
+}
+
   }
 
-  // Resize to parent
+  // Resize canvas to parent
   const resizeCanvasKeepingGridAspect = useCallback(() => {
     const canvas = canvasReference.current!;
     const parent = canvas.parentElement as HTMLElement;
@@ -233,7 +336,7 @@ export function GameCanvas(): JSX.Element {
     canvas.height = targetHeight;
   }, []);
 
-  // Effect A
+  // Loop + draw
   useEffect(() => {
     const canvas = canvasReference.current!;
     const context = canvas.getContext('2d') as CanvasRenderingContext2D;
@@ -285,12 +388,11 @@ export function GameCanvas(): JSX.Element {
         playerTwoRef.current.color
       );
 
-      // Optional debug overlay drawn on canvas
       drawOverlay(
         context,
         gridRef.current,
         tickCounterRef.current,
-        gameIsRunningRef.current,
+        gameState === 'playing',
         overlayMessage ?? ''
       );
 
@@ -307,11 +409,19 @@ export function GameCanvas(): JSX.Element {
       window.removeEventListener('resize', onResize);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resizeCanvasKeepingGridAspect, overlayMessage]);
+  }, [resizeCanvasKeepingGridAspect, overlayMessage, gameState, level]);
 
-  // Effect B: inputs
+  // Inputs
   useEffect(() => {
     function keydownHandler(event: KeyboardEvent): void {
+      if (
+        gameState === 'menu' &&
+        (event.key === 'Enter' || event.key === ' ')
+      ) {
+        setGameState('playing');
+        resetRound();
+        return;
+      }
       handleKeyDownBase(
         event,
         playerOneRef as React.MutableRefObject<PlayerForInput>,
@@ -320,104 +430,206 @@ export function GameCanvas(): JSX.Element {
     }
     window.addEventListener('keydown', keydownHandler);
     return () => window.removeEventListener('keydown', keydownHandler);
-  }, [resetRound]);
+  }, [resetRound, gameState]);
+
+  // RoundEnd actions
+  /**
+   * Handles the transition from "roundEnd" to the next state.
+   * - If player won → next level (or finalize run if last level)
+   * - If player lost → lose a life (or finalize run if no lives left)
+   */
+  function handleRoundEndPrimary(): void {
+    const playerWonRound = overlayMessage?.startsWith('You win') ?? false;
+
+    if (playerWonRound) {
+      // Last level completed → finalize run
+      const isLastLevel = level >= LEVEL_COUNT;
+      if (isLastLevel) {
+        finalizeRunAndSave('victory');
+        return;
+      }
+
+      // Advance to next level
+      const nextLevelValue = Math.min(level + 1, LEVEL_COUNT);
+      setLevel(nextLevelValue);
+      setGameState('playing');
+      resetRound();
+      return;
+    }
+
+    // Player lost → remove a life
+    const remainingLives = lives - 1;
+    if (remainingLives <= 0) {
+      // No lives left → end run
+      setLives(0);
+      finalizeRunAndSave('outOfLives');
+      return;
+    }
+
+    // Still has lives → retry current level
+    setLives(remainingLives);
+    setGameState('playing');
+    resetRound();
+  }
+
+  function handleGameOverPrimary(): void {
+    startNewRun();
+  }
 
   function handleTouchDirection(
     direction: 'up' | 'down' | 'left' | 'right'
   ): void {
-    playerOneRef.current.pendingDirection = direction;
+    if (gameState === 'playing')
+      playerOneRef.current.pendingDirection = direction;
   }
 
-  // HUD overlay node (does not consume layout height)
-  const hearts = '❤'.repeat(lives).padEnd(3, '♡');
+  // HUD
+  const hearts = '❤'.repeat(Math.max(0, lives));
   const formattedScore = score.toString().padStart(8, '0');
   const formattedHighScore = highScore.toString().padStart(8, '0');
 
-  function HudOverlay() {
+  function Hud() {
     return (
-      <div className='game-ui hud-overlay'>
+      <div className='game-ui'>
         <h1 className='game-title'>Lightcycle Arena</h1>
+
         <div className='hud-container'>
           <div className='hud-row'>
-            <span className='hud-lives'>Lives: {hearts}</span>
+            <span className='hud-lives'>Lives: {hearts || '—'}</span>
             <span className='hud-highscore-label'>High Score</span>
           </div>
           <div className='hud-row'>
             <span className='hud-score'>Score: {formattedScore}</span>
             <span className='hud-highscore-value'>{formattedHighScore}</span>
           </div>
+          <div className='hud-row' style={{ opacity: 0.9 }}>
+            <span>
+              Level: {level}/{LEVEL_COUNT}
+            </span>
+            <span>Mode: {currentDifficulty()}</span>
+          </div>
         </div>
       </div>
     );
   }
 
-  // Render
-  // inside GameCanvas component
+  /**
+   * Computes the overlay copy and actions depending on the current game state.
+   * Centralizes all overlay variants to avoid repeated JSX.
+   */
+  function getOverlayConfig(): {
+    title: string;
+    paragraph?: string;
+    primaryLabel?: string;
+    onPrimary?: () => void;
+    showLeaderboard: boolean;
+    extraContent?: React.ReactNode;
+    styleOverride?: React.CSSProperties;
+  } {
+    const isWinMessage = overlayMessage?.startsWith('You win') ?? false;
+
+    if (gameState === 'menu') {
+      return {
+        title: 'Lightcycle Arena',
+        paragraph: 'Press Enter to start',
+        primaryLabel: 'Start',
+        onPrimary: () => {
+          setGameState('playing');
+          resetRound();
+        },
+        showLeaderboard: true,
+        styleOverride: { background: 'rgba(0,0,0,0.65)' },
+      };
+    }
+
+    if (gameState === 'roundEnd') {
+      return {
+        title: overlayMessage || (isWinMessage ? 'You win!' : 'Round Over'),
+        paragraph: isWinMessage
+          ? 'Press Next to continue'
+          : 'Press Retry to continue',
+        primaryLabel: isWinMessage ? 'Next Level' : 'Retry',
+        onPrimary: handleRoundEndPrimary,
+        showLeaderboard: true,
+        // no extraContent here
+      };
+    }
+
+    if (gameState === 'gameOver') {
+      const title =
+        gameOverReasonRef.current === 'victory' ? 'Run Complete' : 'Game Over';
+
+      return {
+        title,
+        paragraph: undefined,
+        primaryLabel: 'Play Again',
+        onPrimary: handleGameOverPrimary,
+        showLeaderboard: true,
+        extraContent: (
+          <p style={{ marginTop: 6 }}>Your final score: {formattedScore}</p>
+        ),
+      };
+    }
+
+    // Fallback
+    return {
+      title: '',
+      showLeaderboard: false,
+    };
+  }
+
+  function StateOverlay(): JSX.Element | null {
+    // Nothing to render while actively playing
+    if (gameState === 'playing') return null;
+
+    // Decide content based on state
+    const {
+      title,
+      paragraph,
+      primaryLabel,
+      onPrimary,
+      showLeaderboard,
+      extraContent,
+      styleOverride,
+    } = getOverlayConfig();
+
+    return (
+      <GameOverlay
+        title={title}
+        paragraph={paragraph}
+        primaryLabel={primaryLabel}
+        onPrimary={onPrimary}
+        showLeaderboard={showLeaderboard}
+        leaderboardEntries={leaderboard}
+        maxRows={5}
+        extraContent={extraContent}
+        styleOverride={styleOverride}
+      />
+    );
+  }
+
+  // Render (flex layout ya configurado en tu index.css)
   return isMobile ? (
     <div className='mobile-stage'>
-      {/* HUD stays visible on top */}
       <div className='hud-zone'>
-        <div className='game-ui'>
-          <h1 className='game-title'>Lightcycle Arena</h1>
-          <div className='hud-container'>
-            <div className='hud-row'>
-              <span className='hud-lives'>Lives: {'❤'.repeat(3)}</span>
-              <span className='hud-highscore-label'>High Score</span>
-            </div>
-            <div className='hud-row'>
-              <span className='hud-score'>Score: 00000000</span>
-              <span className='hud-highscore-value'>00002000</span>
-            </div>
-          </div>
-        </div>
+        <Hud />
       </div>
-
-      {/* Canvas zone (50%) */}
       <div className='canvas-zone'>
         <canvas ref={canvasReference} />
-        {overlayMessage && (
-          <div className='canvas-overlay'>
-            <h2>{overlayMessage}</h2>
-            <p>Press R or tap Reset to play again</p>
-            <button onClick={resetRound}>Reset</button>
-          </div>
-        )}
+        <StateOverlay />
       </div>
-
-      {/* DPad zone (remaining 50%) */}
       <div className='controls-zone'>
         <DPadOverlay onInput={handleTouchDirection} onReset={resetRound} />
       </div>
     </div>
   ) : (
     <div className='game-stage'>
-      {/* HUD (2/8 height) */}
       <div className='hud-zone'>
-        <div className='game-ui'>
-          <h1 className='game-title'>Lightcycle Arena</h1>
-          <div className='hud-container'>
-            <div className='hud-row'>
-              <span className='hud-lives'>Lives: {'❤'.repeat(3)}</span>
-              <span className='hud-highscore-label'>High Score</span>
-            </div>
-            <div className='hud-row'>
-              <span className='hud-score'>Score: 00000000</span>
-              <span className='hud-highscore-value'>00002000</span>
-            </div>
-          </div>
-        </div>
+        <Hud />
       </div>
-
-      {/* Canvas (6/8 height) */}
       <div className='canvas-zone'>
         <canvas ref={canvasReference} />
-        {overlayMessage && (
-          <div className='canvas-overlay'>
-            <h2>{overlayMessage}</h2>
-            <p>Press R or tap Reset to play again</p>
-            <button onClick={resetRound}>Reset</button>
-          </div>
-        )}
+        <StateOverlay />
       </div>
     </div>
   );

@@ -1,8 +1,10 @@
+/* --- existing HUD styles (se mantienen) --- */
 .game-ui {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
+
   width: 100%;
   max-width: 900px;
 }
@@ -46,5 +48,78 @@
 }
 
 .hud-highscore-value {
+  font-weight: 700;
+}
+
+.leaderboard {
+  width: 100%;
+  max-width: 520px;
+  margin-top: 14px;
+  border: 1px solid #222;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.leaderboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: #131313;
+  border-bottom: 1px solid #222;
+}
+
+.leaderboard-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #9ecbff;
+}
+
+.leaderboard-subtitle {
+  margin: 0;
+  font-size: 0.875rem;
+  opacity: 0.8;
+  color: #cfe4ff;
+}
+
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.leaderboard-table th,
+.leaderboard-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #1f1f1f;
+  text-align: left;
+  font-size: 0.95rem;
+}
+
+.leaderboard-table th {
+  color: #9ecbff;
+  background: #101010;
+}
+
+.leaderboard-table tr:last-child td {
+  border-bottom: none;
+}
+
+.leaderboard-rank {
+  width: 3ch;
+  opacity: 0.85;
+  color: #9ecbff;
+  font-weight: 700;
+}
+
+.leaderboard-name {
+  color: #e8f2ff;
+  font-weight: 700;
+}
+
+.leaderboard-score {
+  text-align: right;
+  color: #ffe8a0;
   font-weight: 700;
 }

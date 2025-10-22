@@ -12,7 +12,7 @@ import {
  * AI Difficulty levels.
  * Each difficulty level changes reaction speed, randomness, and lookahead.
  */
-export type AiDifficulty = "Static" | "Easy" | "Normal" | "Hard" | "Insane";
+export type AiDifficulty = "Easy" | "Normal" | "Hard" | "VeryHard" | "Insane";
 
 /**
  * Parameters that define the AI behavior for a given difficulty.
@@ -30,11 +30,11 @@ export interface AiParams {
  * Parameter values for all difficulty levels.
  */
 export const AI_PARAMS: Record<AiDifficulty, AiParams> = {
-  Static: { decisionEveryNTicks: 8, randomness: 0.25, lookahead: 0 },
-  Easy:   { decisionEveryNTicks: 4, randomness: 0.15, lookahead: 1 },
-  Normal: { decisionEveryNTicks: 2, randomness: 0.08, lookahead: 2 },
-  Hard:   { decisionEveryNTicks: 1, randomness: 0.03, lookahead: 3 },
-  Insane: { decisionEveryNTicks: 1, randomness: 0.00, lookahead: 4 },
+  Easy:     { decisionEveryNTicks: 4, randomness: 0.10, lookahead: 1 },
+  Normal:   { decisionEveryNTicks: 3, randomness: 0.08, lookahead: 2 },
+  Hard:     { decisionEveryNTicks: 2, randomness: 0.05, lookahead: 3 },
+  VeryHard: { decisionEveryNTicks: 1, randomness: 0.03, lookahead: 4 },
+  Insane:   { decisionEveryNTicks: 0, randomness: 0.01, lookahead: 5 },
 };
 
 /**
@@ -97,9 +97,6 @@ export function decideNextDirection(
   }
 
   switch (difficulty) {
-    case "Static":
-      return view.self.direction; // barely moves
-
     case "Easy":
       // Pick a random safe direction
       return pickRandom(safeDirections);
@@ -111,6 +108,7 @@ export function decideNextDirection(
       return pickRandom(safeDirections);
 
     case "Hard":
+    case "VeryHard":
     case "Insane":
       // Placeholder: prefers "up" > "right" > "down" > "left" if safe
       const preferenceOrder: Direction[] = ["up", "right", "down", "left"];
