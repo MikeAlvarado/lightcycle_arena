@@ -1,51 +1,61 @@
-import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
-import { GRID_CONFIG, type GridConfig } from '../utils/gridConfig';
-import {
-  createEmptyLattice,
-  toLatticeVertexIndices,
-  stepOnLattice,
-  isInsideLattice,
-  isOccupied,
-  occupy,
-  applyPendingDirection,
-  type LatticeMatrix,
-  type LogicalVertex,
-} from '../utils/latticeHelpers';
-import { handleKeyDown as handleKeyDownBase } from '../utils/inputHandlers';
-import {
-  drawGrid,
-  drawLatticeTrails,
-  drawHeadAtLatticeVertex,
-  drawOverlay,
-} from '../utils/canvasDrawing';
-import type { Player, PlayerForInput } from '../types/player';
-import {
-  decideNextDirection,
-  AI_PARAMS,
-  type AiDifficulty,
-} from '../ai/simpleAI';
-import { useIsMobile } from '../hooks/useIsMobile';
-import { DPadOverlay } from './DPadOverlay';
-import '../styles/gameCanvasOverlay.css';
-import '../styles/gameUI.css';
-import type { HighScoreEntry } from '../types/game';
-import { GameOverlay } from './GameOverlay';
+// React
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { GameState } from '../types/game';
+// Types (propios)
+import type { GameState, HighScoreEntry } from '../types/game';
+import type { GridConfig } from '../utils/gridConfig';
+import type { LatticeMatrix, LogicalVertex } from '../utils/latticeHelpers';
+import type { Player, PlayerForInput } from '../types/player';
+import type { AiDifficulty } from '../ai/simpleAI';
+
+// Config / constantes
 import {
   INITIAL_LIVES,
   LEVEL_COUNT,
-  difficultyForLevel,
   bonusForLevel,
+  difficultyForLevel,
   pointsPerSecond,
 } from '../config/levels';
+import { GRID_CONFIG } from '../utils/gridConfig';
+
+// Utils (funcionales puros)
 import {
+  applyPendingDirection,
+  createEmptyLattice,
+  isInsideLattice,
+  isOccupied,
+  occupy,
+  stepOnLattice,
+  toLatticeVertexIndices,
+} from '../utils/latticeHelpers';
+import {
+  loadHighScoreMax,
+  loadHighScores,
   loadPlayerName,
   savePlayerName,
-  loadHighScores,
   tryInsertHighScore,
-  loadHighScoreMax,
 } from '../utils/storage';
+
+// Entrada / renderizado
+import { handleKeyDown as handleKeyDownBase } from '../utils/inputHandlers';
+import {
+  drawGrid,
+  drawHeadAtLatticeVertex,
+  drawLatticeTrails,
+  drawOverlay,
+} from '../utils/canvasDrawing';
+
+// IA y hooks
+import { AI_PARAMS, decideNextDirection } from '../ai/simpleAI';
+import { useIsMobile } from '../hooks/useIsMobile';
+
+// Componentes UI
+import { DPadOverlay } from './DPadOverlay';
+import { GameOverlay } from './GameOverlay';
+
+// Estilos
+import '../styles/gameCanvasOverlay.css';
+import '../styles/gameUI.css';
 
 export function GameCanvas(): JSX.Element {
   // Loop timing
@@ -85,6 +95,7 @@ export function GameCanvas(): JSX.Element {
   );
 
   const [overlayMessage, setOverlayMessage] = useState<string | null>(null);
+  
   // Razón del fin de la run (solo para el overlay final)
   const gameOverReasonRef = useRef<'victory' | 'outOfLives' | 'none'>('none');
 
@@ -308,10 +319,9 @@ export function GameCanvas(): JSX.Element {
 
     tickCounterRef.current += 1;
 
-if (tickCounterRef.current % 10 === 0) {
-  setScore((previousScore) => previousScore + pointsPerSecond(level));
-}
-
+    if (tickCounterRef.current % 10 === 0) {
+      setScore((previousScore) => previousScore + pointsPerSecond(level));
+    }
   }
 
   // Resize canvas to parent
