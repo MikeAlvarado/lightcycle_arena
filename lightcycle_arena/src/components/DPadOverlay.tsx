@@ -16,18 +16,15 @@ interface DPadOverlayProps {
 }
 
 export function DPadOverlay({ onInput, onReset }: DPadOverlayProps): JSX.Element {
-  function emit(d: DPadDirection) { onInput(d); }
+  // pointerdown fires once for both touch and mouse, with no click delay.
+  // (React 18 registers touchstart as passive, so preventDefault there is a
+  // no-op that logs a console error; scrolling/zoom is blocked via CSS
+  // touch-action on the buttons instead.)
   function bind(d: DPadDirection) {
-    return {
-      onTouchStart: (e: React.TouchEvent) => { e.preventDefault(); emit(d); },
-      onClick: (e: React.MouseEvent) => { e.preventDefault(); emit(d); },
-    };
+    return { onPointerDown: () => onInput(d) };
   }
   function bindReset() {
-    return {
-      onTouchStart: (e: React.TouchEvent) => { e.preventDefault(); onReset(); },
-      onClick: (e: React.MouseEvent) => { e.preventDefault(); onReset(); },
-    };
+    return { onPointerDown: () => onReset() };
   }
 
   return (

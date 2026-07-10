@@ -39,6 +39,7 @@ export const buttonStyle: CSSProperties = {
   color: "#f0f4ff",
   userSelect: "none",
   WebkitTapHighlightColor: "transparent",
+  touchAction: "none", // no scroll/zoom gestures from game controls
 };
 
 export const labelStyle: CSSProperties = {
@@ -65,6 +66,7 @@ export const resetButtonStyle: CSSProperties = {
   fontSize: 16,
   userSelect: "none",
   WebkitTapHighlightColor: "transparent",
+  touchAction: "none",
 };
 
 export const resetLabelStyle: CSSProperties = {

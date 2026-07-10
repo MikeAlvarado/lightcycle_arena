@@ -39,10 +39,10 @@ import {
 // Entrada / renderizado
 import { handleKeyDown as handleKeyDownBase } from '../utils/inputHandlers';
 import {
+  drawControlsHint,
   drawGrid,
   drawHeadAtLatticeVertex,
   drawLatticeTrails,
-  drawOverlay,
 } from '../utils/canvasDrawing';
 
 // IA y hooks
@@ -88,14 +88,19 @@ export function GameCanvas(): JSX.Element {
   const [level, setLevel] = useState<number>(1);
   const [lives, setLives] = useState<number>(INITIAL_LIVES);
   const [score, setScore] = useState<number>(0);
-  const [highScore, setHighScore] = useState<number>(loadHighScoreMax());
-  const [playerName, setPlayerName] = useState<string | null>(loadPlayerName());
+  const [highScore, setHighScore] = useState<number>(loadHighScoreMax);
+  const [playerName, setPlayerName] = useState<string | null>(loadPlayerName);
   const [leaderboard, setLeaderboard] = useState<HighScoreEntry[]>(() =>
     loadHighScores()
   );
 
   const [overlayMessage, setOverlayMessage] = useState<string | null>(null);
-  
+
+  // Inline "save your score" form shown on game over when no name is stored yet
+  const [needsNameForSave, setNeedsNameForSave] = useState<boolean>(false);
+  const [nameDraft, setNameDraft] = useState<string>('');
+  const pendingScoreRef = useRef<number>(0);
+
   // Razón del fin de la run (solo para el overlay final)
   const gameOverReasonRef = useRef<'victory' | 'outOfLives' | 'none'>('none');
 
@@ -181,6 +186,7 @@ export function GameCanvas(): JSX.Element {
     setLevel(1);
     setLives(INITIAL_LIVES);
     setScore(0);
+    setNeedsNameForSave(false);
     setGameState('playing');
     resetRound();
   }, [resetRound]);
@@ -230,46 +236,40 @@ export function GameCanvas(): JSX.Element {
     setGameState('roundEnd');
   }
 
+  /** Persist a score entry and refresh the leaderboard/high-score UI state. */
+  function persistScore(name: string): void {
+    const updatedHighScores = tryInsertHighScore({
+      name,
+      score: pendingScoreRef.current,
+      dateISO: new Date().toISOString(),
+    });
+
+    setLeaderboard(updatedHighScores);
+    setHighScore(
+      updatedHighScores.length
+        ? Math.max(...updatedHighScores.map((entry) => entry.score))
+        : 0
+    );
+  }
+
   /**
    * Finalizes the full run (after losing all lives or clearing all levels).
-   * It asks for the player's name (if missing) and saves their high score locally.
+   * Saves the score right away when a name is stored; otherwise the gameOver
+   * overlay shows an inline form to enter it (window.prompt is unreliable on
+   * mobile and disabled in several in-app browsers).
    */
   function finalizeRunAndSave(runResult: 'victory' | 'outOfLives'): void {
     // Prevent duplicate saving or prompts
     if (savedThisRunRef.current) return;
     savedThisRunRef.current = true;
     gameOverReasonRef.current = runResult;
+    pendingScoreRef.current = score; // level bonus already included earlier if win
 
-    let currentPlayerName = playerName;
-
-    // Ask for player name only if it doesn't exist
-    if (!currentPlayerName) {
-      const enteredName = window
-        .prompt('Enter your name to save the score:', '')
-        ?.trim();
-      if (enteredName && enteredName.length > 0) {
-        currentPlayerName = enteredName.slice(0, 20);
-        setPlayerName(currentPlayerName);
-        savePlayerName(currentPlayerName);
-      }
-    }
-
-    // Save score if player name is available
-    if (currentPlayerName) {
-      const finalScoreValue = score; // level bonus already included earlier if win
-      const updatedHighScores = tryInsertHighScore({
-        name: currentPlayerName,
-        score: finalScoreValue,
-        dateISO: new Date().toISOString(),
-      });
-
-      // Update local states so UI reflects the latest leaderboard without reload
-      setLeaderboard(updatedHighScores);
-
-      const highestScore = updatedHighScores.length
-        ? Math.max(...updatedHighScores.map((entry) => entry.score))
-        : 0;
-      setHighScore(highestScore);
+    if (playerName) {
+      persistScore(playerName);
+      setNeedsNameForSave(false);
+    } else {
+      setNeedsNameForSave(true);
     }
 
     // Show proper overlay depending on run result
@@ -279,6 +279,17 @@ export function GameCanvas(): JSX.Element {
       setOverlayMessage('Game Over');
     }
     setGameState('gameOver');
+  }
+
+  /** Called from the gameOver overlay form once the player typed a name. */
+  function handleSaveNameAndScore(): void {
+    const trimmedName = nameDraft.trim().slice(0, 20);
+    if (!trimmedName) return;
+
+    setPlayerName(trimmedName);
+    savePlayerName(trimmedName);
+    persistScore(trimmedName);
+    setNeedsNameForSave(false);
   }
 
   // Per-tick logic
@@ -294,9 +305,12 @@ export function GameCanvas(): JSX.Element {
 
     // Bot decision cadence by difficulty
     const params = AI_PARAMS[currentDifficulty()];
+    // Math.max guards against a 0 cadence: n % 0 is NaN, which would silently
+    // disable the bot's decision-making for that difficulty.
+    const decisionCadence = Math.max(1, params.decisionEveryNTicks);
     if (
       playerTwoRef.current.isAlive &&
-      tickCounterRef.current % params.decisionEveryNTicks === 0
+      tickCounterRef.current % decisionCadence === 0
     ) {
       const aiView = {
         grid: gridRef.current,
@@ -342,8 +356,13 @@ export function GameCanvas(): JSX.Element {
     targetWidth = Math.max(240, targetWidth);
     targetHeight = Math.max(180, targetHeight);
 
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
+    // Render at device resolution but display at CSS size, otherwise the
+    // canvas looks blurry on high-DPI (retina / mobile) screens.
+    const devicePixelRatioValue = window.devicePixelRatio || 1;
+    canvas.style.width = `${targetWidth}px`;
+    canvas.style.height = `${targetHeight}px`;
+    canvas.width = Math.floor(targetWidth * devicePixelRatioValue);
+    canvas.height = Math.floor(targetHeight * devicePixelRatioValue);
   }, []);
 
   // Loop + draw
@@ -364,47 +383,49 @@ export function GameCanvas(): JSX.Element {
         accumulatedMilliseconds.current -= logicStepMilliseconds;
       }
 
-      drawGrid(context, canvas.width, canvas.height, gridRef.current);
+      // Draw in CSS pixels; the transform maps them to the high-DPI backing store.
+      const devicePixelRatioValue = window.devicePixelRatio || 1;
+      context.setTransform(
+        devicePixelRatioValue, 0, 0, devicePixelRatioValue, 0, 0
+      );
+      const drawWidth = canvas.width / devicePixelRatioValue;
+      const drawHeight = canvas.height / devicePixelRatioValue;
+
+      drawGrid(context, drawWidth, drawHeight, gridRef.current);
       drawLatticeTrails(
         context,
-        canvas.width,
-        canvas.height,
+        drawWidth,
+        drawHeight,
         gridRef.current,
         playerOneLatticeRef.current,
         playerOneRef.current.color
       );
       drawLatticeTrails(
         context,
-        canvas.width,
-        canvas.height,
+        drawWidth,
+        drawHeight,
         gridRef.current,
         playerTwoLatticeRef.current,
         playerTwoRef.current.color
       );
       drawHeadAtLatticeVertex(
         context,
-        canvas.width,
-        canvas.height,
+        drawWidth,
+        drawHeight,
         gridRef.current,
         playerOneRef.current.headLatticeIndex,
         playerOneRef.current.color
       );
       drawHeadAtLatticeVertex(
         context,
-        canvas.width,
-        canvas.height,
+        drawWidth,
+        drawHeight,
         gridRef.current,
         playerTwoRef.current.headLatticeIndex,
         playerTwoRef.current.color
       );
 
-      drawOverlay(
-        context,
-        gridRef.current,
-        tickCounterRef.current,
-        gameState === 'playing',
-        overlayMessage ?? ''
-      );
+      if (!isMobile) drawControlsHint(context);
 
       requestIdReference.current = requestAnimationFrame(animationLoop);
     }
@@ -419,7 +440,7 @@ export function GameCanvas(): JSX.Element {
       window.removeEventListener('resize', onResize);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resizeCanvasKeepingGridAspect, overlayMessage, gameState, level]);
+  }, [resizeCanvasKeepingGridAspect, gameState, level, isMobile]);
 
   // Inputs
   useEffect(() => {
@@ -432,6 +453,9 @@ export function GameCanvas(): JSX.Element {
         resetRound();
         return;
       }
+      // Game keys only apply mid-round; otherwise typing in overlay inputs
+      // (e.g. the letter "r" in a player name) would reset the board.
+      if (gameState !== 'playing') return;
       handleKeyDownBase(
         event,
         playerOneRef as React.MutableRefObject<PlayerForInput>,
@@ -498,30 +522,30 @@ export function GameCanvas(): JSX.Element {
   const formattedScore = score.toString().padStart(8, '0');
   const formattedHighScore = highScore.toString().padStart(8, '0');
 
-  function Hud() {
-    return (
-      <div className='game-ui'>
-        <h1 className='game-title'>Lightcycle Arena</h1>
+  // Plain JSX (not a nested component) so React doesn't remount the subtree
+  // on every GameCanvas render.
+  const hud = (
+    <div className='game-ui'>
+      <h1 className='game-title'>Lightcycle Arena</h1>
 
-        <div className='hud-container'>
-          <div className='hud-row'>
-            <span className='hud-lives'>Lives: {hearts || '—'}</span>
-            <span className='hud-highscore-label'>High Score</span>
-          </div>
-          <div className='hud-row'>
-            <span className='hud-score'>Score: {formattedScore}</span>
-            <span className='hud-highscore-value'>{formattedHighScore}</span>
-          </div>
-          <div className='hud-row' style={{ opacity: 0.9 }}>
-            <span>
-              Level: {level}/{LEVEL_COUNT}
-            </span>
-            <span>Mode: {currentDifficulty()}</span>
-          </div>
+      <div className='hud-container'>
+        <div className='hud-row'>
+          <span className='hud-lives'>Lives: {hearts || '—'}</span>
+          <span className='hud-highscore-label'>High Score</span>
+        </div>
+        <div className='hud-row'>
+          <span className='hud-score'>Score: {formattedScore}</span>
+          <span className='hud-highscore-value'>{formattedHighScore}</span>
+        </div>
+        <div className='hud-row' style={{ opacity: 0.9 }}>
+          <span>
+            Level: {level}/{LEVEL_COUNT}
+          </span>
+          <span>Mode: {currentDifficulty()}</span>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
 
   /**
    * Computes the overlay copy and actions depending on the current game state.
@@ -576,7 +600,31 @@ export function GameCanvas(): JSX.Element {
         onPrimary: handleGameOverPrimary,
         showLeaderboard: true,
         extraContent: (
-          <p style={{ marginTop: 6 }}>Your final score: {formattedScore}</p>
+          <>
+            <p style={{ marginTop: 6 }}>Your final score: {formattedScore}</p>
+            {needsNameForSave && (
+              <div className='save-score-form'>
+                <input
+                  type='text'
+                  value={nameDraft}
+                  onChange={(event) => setNameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') handleSaveNameAndScore();
+                  }}
+                  maxLength={20}
+                  placeholder='Your name'
+                  aria-label='Player name'
+                  autoComplete='off'
+                />
+                <button
+                  onClick={handleSaveNameAndScore}
+                  disabled={nameDraft.trim().length === 0}
+                >
+                  Save score
+                </button>
+              </div>
+            )}
+          </>
         ),
       };
     }
@@ -588,45 +636,30 @@ export function GameCanvas(): JSX.Element {
     };
   }
 
-  function StateOverlay(): JSX.Element | null {
-    // Nothing to render while actively playing
-    if (gameState === 'playing') return null;
-
-    // Decide content based on state
-    const {
-      title,
-      paragraph,
-      primaryLabel,
-      onPrimary,
-      showLeaderboard,
-      extraContent,
-      styleOverride,
-    } = getOverlayConfig();
-
-    return (
-      <GameOverlay
-        title={title}
-        paragraph={paragraph}
-        primaryLabel={primaryLabel}
-        onPrimary={onPrimary}
-        showLeaderboard={showLeaderboard}
-        leaderboardEntries={leaderboard}
-        maxRows={5}
-        extraContent={extraContent}
-        styleOverride={styleOverride}
-      />
-    );
-  }
+  // Same as the HUD: computed JSX instead of a nested component, so overlay
+  // children (like the save-score input) keep focus across re-renders.
+  const overlayConfig = gameState !== 'playing' ? getOverlayConfig() : null;
+  const stateOverlay = overlayConfig ? (
+    <GameOverlay
+      title={overlayConfig.title}
+      paragraph={overlayConfig.paragraph}
+      primaryLabel={overlayConfig.primaryLabel}
+      onPrimary={overlayConfig.onPrimary}
+      showLeaderboard={overlayConfig.showLeaderboard}
+      leaderboardEntries={leaderboard}
+      maxRows={5}
+      extraContent={overlayConfig.extraContent}
+      styleOverride={overlayConfig.styleOverride}
+    />
+  ) : null;
 
   // Render (flex layout ya configurado en tu index.css)
   return isMobile ? (
     <div className='mobile-stage'>
-      <div className='hud-zone'>
-        <Hud />
-      </div>
+      <div className='hud-zone'>{hud}</div>
       <div className='canvas-zone'>
         <canvas ref={canvasReference} />
-        <StateOverlay />
+        {stateOverlay}
       </div>
       <div className='controls-zone'>
         <DPadOverlay onInput={handleTouchDirection} onReset={resetRound} />
@@ -634,12 +667,10 @@ export function GameCanvas(): JSX.Element {
     </div>
   ) : (
     <div className='game-stage'>
-      <div className='hud-zone'>
-        <Hud />
-      </div>
+      <div className='hud-zone'>{hud}</div>
       <div className='canvas-zone'>
         <canvas ref={canvasReference} />
-        <StateOverlay />
+        {stateOverlay}
       </div>
     </div>
   );

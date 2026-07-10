@@ -5,21 +5,21 @@ import { useEffect, useState } from "react";
  * Detects if the current device should be treated as mobile.
  * It uses both pointer type (touch) and screen width heuristics.
  */
+function evaluateIsMobile(): boolean {
+  const hasTouchInput = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+  const isNarrowScreen = window.matchMedia?.("(max-width: 768px)").matches ?? false;
+  return hasTouchInput || isNarrowScreen;
+}
+
 export function useIsMobile(): boolean {
-  const [isMobileDevice, setIsMobileDevice] = useState<boolean>(false);
+  // Lazy initializer: correct value on first render, so mobile devices don't
+  // flash the desktop layout before the effect runs.
+  const [isMobileDevice, setIsMobileDevice] = useState<boolean>(evaluateIsMobile);
 
   useEffect(() => {
-    // Evaluate both coarse pointer and screen width
-    const hasTouchInput = window.matchMedia?.("(pointer: coarse)").matches ?? false;
-    const isNarrowScreen = window.matchMedia?.("(max-width: 768px)").matches ?? false;
-
-    setIsMobileDevice(hasTouchInput || isNarrowScreen);
-
     // Watch for changes in device or screen width
     function handleMediaQueryChange() {
-      const updatedHasTouchInput = window.matchMedia?.("(pointer: coarse)").matches ?? false;
-      const updatedIsNarrowScreen = window.matchMedia?.("(max-width: 768px)").matches ?? false;
-      setIsMobileDevice(updatedHasTouchInput || updatedIsNarrowScreen);
+      setIsMobileDevice(evaluateIsMobile());
     }
 
     const touchMediaQuery = window.matchMedia("(pointer: coarse)");

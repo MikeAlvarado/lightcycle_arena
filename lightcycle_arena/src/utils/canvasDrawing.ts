@@ -151,25 +151,10 @@ export function drawHeadAtLatticeVertex(
 }
 
 /**
- * Draw overlay with a few debug labels.
+ * Draw the keyboard controls hint (desktop only; mobile uses the D-pad).
  */
-export function drawOverlay(
-  context: CanvasRenderingContext2D,
-  grid: GridConfig,
-  tickCounterValue: number,
-  running: boolean,
-  message: string
-): void {
+export function drawControlsHint(context: CanvasRenderingContext2D): void {
   context.fillStyle = "#9ecbff";
   context.font = "12px ui-monospace, Menlo, Consolas, monospace";
-  context.fillText(`Grid: ${grid.columns} × ${grid.rows}`, 8, 16);
-  context.fillText(`Tick: ${tickCounterValue}`, 8, 32);
-  context.fillText(`Running: ${running ? "yes" : "no"}`, 8, 48);
-  context.fillText(`Controls — Move: Arrows/WASD | Reset: R`, 8, 64);
-
-  if (!running && message) {
-    context.fillStyle = "#ffffff";
-    context.font = "bold 18px ui-monospace, Menlo, Consolas, monospace";
-    context.fillText(message, 8, 88);
-  }
+  context.fillText(`Controls — Move: Arrows/WASD | Reset: R`, 8, 16);
 }

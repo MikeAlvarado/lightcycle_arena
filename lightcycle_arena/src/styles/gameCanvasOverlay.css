@@ -50,3 +50,41 @@
   box-shadow: 0 0 16px #00e0ff, 0 0 32px #00e0ff;
   transform: scale(1.05);
 }
+
+.canvas-overlay button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.canvas-overlay button:disabled:hover {
+  background: rgba(0, 0, 0, 0.8);
+  color: #00e0ff;
+  box-shadow: 0 0 8px rgba(0, 224, 255, 0.3);
+  transform: none;
+}
+
+/* Inline "save your score" form on the game-over overlay */
+.save-score-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  margin: 4px 16px 14px 16px;
+  flex-wrap: wrap;
+}
+
+.save-score-form input {
+  pointer-events: auto;
+  padding: 10px 12px;
+  font-size: 1rem;
+  border-radius: 8px;
+  border: 1px solid #00e0ff;
+  background: rgba(0, 0, 0, 0.8);
+  color: #eaf6ff;
+  outline: none;
+  max-width: 200px;
+}
+
+.save-score-form input::placeholder {
+  color: #7fa8bf;
+}
