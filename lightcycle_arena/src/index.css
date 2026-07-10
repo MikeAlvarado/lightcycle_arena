@@ -23,6 +23,9 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  /* dvh tracks the visible viewport on mobile browsers (iOS Safari's 100vh
+     includes the area behind the collapsing address bar) */
+  height: 100dvh;
   width: 100vw;
   overflow: hidden;
 }
@@ -62,6 +65,7 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh;
     width: 100vw;
   }
 
@@ -84,5 +88,7 @@ body {
     align-items: center;
     justify-content: center;
     padding: 8px;
+    /* Keep the D-pad clear of the iPhone home indicator */
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
   }
 }

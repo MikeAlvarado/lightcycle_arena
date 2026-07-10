@@ -18,7 +18,7 @@ export type AiDifficulty = "Easy" | "Normal" | "Hard" | "VeryHard" | "Insane";
  * Parameters that define the AI behavior for a given difficulty.
  */
 export interface AiParams {
-  /** The number of logic ticks between each decision (higher = slower). */
+  /** The number of logic ticks between each decision (higher = slower). Minimum 1 (every tick). */
   decisionEveryNTicks: number;
   /** Probability of choosing a suboptimal (random) move. */
   randomness: number;
@@ -34,7 +34,7 @@ export const AI_PARAMS: Record<AiDifficulty, AiParams> = {
   Normal:   { decisionEveryNTicks: 3, randomness: 0.08, lookahead: 2 },
   Hard:     { decisionEveryNTicks: 2, randomness: 0.05, lookahead: 3 },
   VeryHard: { decisionEveryNTicks: 1, randomness: 0.03, lookahead: 4 },
-  Insane:   { decisionEveryNTicks: 0, randomness: 0.01, lookahead: 5 },
+  Insane:   { decisionEveryNTicks: 1, randomness: 0.01, lookahead: 5 },
 };
 
 /**
