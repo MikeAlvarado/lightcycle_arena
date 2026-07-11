@@ -20,6 +20,18 @@ export function savePlayerName(name: string): void {
   try { localStorage.setItem(KEY_PLAYER_NAME, name); } catch {}
 }
 
+/** Type guard so malformed/tampered localStorage entries can't reach rendering code. */
+function isValidHighScoreEntry(value: unknown): value is HighScoreEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.name === "string" &&
+    typeof entry.score === "number" &&
+    Number.isFinite(entry.score) &&
+    typeof entry.dateISO === "string"
+  );
+}
+
 export function loadHighScores(): HighScoreEntry[] {
   try {
     const raw = localStorage.getItem(KEY_HIGHSCORES);
@@ -28,8 +40,10 @@ export function loadHighScores(): HighScoreEntry[] {
       localStorage.setItem(KEY_HIGHSCORE_MAX, JSON.stringify(SEED_HIGHSCORES[0].score));
       return [...SEED_HIGHSCORES];
     }
-    const parsed = JSON.parse(raw) as HighScoreEntry[];
-    return Array.isArray(parsed) ? parsed : [...SEED_HIGHSCORES];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [...SEED_HIGHSCORES];
+    const validEntries = parsed.filter(isValidHighScoreEntry);
+    return validEntries.length ? validEntries : [...SEED_HIGHSCORES];
   } catch {
     return [...SEED_HIGHSCORES];
   }
@@ -44,7 +58,11 @@ export function saveHighScores(list: HighScoreEntry[]): void {
 export function loadHighScoreMax(): number {
   try {
     const raw = localStorage.getItem(KEY_HIGHSCORE_MAX);
-    return raw ? JSON.parse(raw) : loadHighScores()[0]?.score ?? 0;
+    if (!raw) return loadHighScores()[0]?.score ?? 0;
+    const parsed = JSON.parse(raw) as unknown;
+    return typeof parsed === "number" && Number.isFinite(parsed)
+      ? parsed
+      : loadHighScores()[0]?.score ?? 0;
   } catch { return 0; }
 }
 

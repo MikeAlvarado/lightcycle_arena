@@ -236,6 +236,17 @@ export function GameCanvas(): JSX.Element {
     setGameState('roundEnd');
   }
 
+  /**
+   * Manual reset (R key / on-screen Reset button) during play counts as a
+   * lost round, same as a crash. Without this, resetting right before a
+   * crash would dodge losing a life for free, making lives meaningless.
+   */
+  function handleManualReset(): void {
+    if (gameState !== 'playing') return;
+    setOverlayMessage('Round reset — life lost.');
+    setGameState('roundEnd');
+  }
+
   /** Persist a score entry and refresh the leaderboard/high-score UI state. */
   function persistScore(name: string): void {
     const updatedHighScores = tryInsertHighScore({
@@ -459,12 +470,13 @@ export function GameCanvas(): JSX.Element {
       handleKeyDownBase(
         event,
         playerOneRef as React.MutableRefObject<PlayerForInput>,
-        resetRound
+        handleManualReset
       );
     }
     window.addEventListener('keydown', keydownHandler);
     return () => window.removeEventListener('keydown', keydownHandler);
-  }, [resetRound, gameState]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState]);
 
   // RoundEnd actions
   /**
@@ -662,7 +674,7 @@ export function GameCanvas(): JSX.Element {
         {stateOverlay}
       </div>
       <div className='controls-zone'>
-        <DPadOverlay onInput={handleTouchDirection} onReset={resetRound} />
+        <DPadOverlay onInput={handleTouchDirection} onReset={handleManualReset} />
       </div>
     </div>
   ) : (
