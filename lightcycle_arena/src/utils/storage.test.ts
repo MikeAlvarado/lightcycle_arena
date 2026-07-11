@@ -36,6 +36,36 @@ describe("loadHighScores", () => {
     localStorage.setItem("lca.highScores", JSON.stringify({ nope: true }));
     expect(loadHighScores()).toHaveLength(5);
   });
+
+  it("falls back to the seed when every entry is malformed", () => {
+    localStorage.setItem(
+      "lca.highScores",
+      JSON.stringify([{ foo: 1 }, { name: "NoScore" }, null, "oops"])
+    );
+    expect(loadHighScores()).toHaveLength(5);
+  });
+
+  it("drops malformed entries but keeps well-formed ones", () => {
+    localStorage.setItem(
+      "lca.highScores",
+      JSON.stringify([
+        { name: "Valid", score: 12345, dateISO: "2026-01-01T00:00:00.000Z" },
+        { name: "Missing score" },
+      ])
+    );
+    const scores = loadHighScores();
+    expect(scores).toHaveLength(1);
+    expect(scores[0].name).toBe("Valid");
+  });
+
+  it("ignores a non-numeric cached max score and falls back to the highest real entry", () => {
+    const probe = [
+      { name: "Valid", score: 777, dateISO: "2026-01-01T00:00:00.000Z" },
+    ];
+    localStorage.setItem("lca.highScoreMax", JSON.stringify("not-a-number"));
+    localStorage.setItem("lca.highScores", JSON.stringify(probe));
+    expect(loadHighScoreMax()).toBe(777);
+  });
 });
 
 describe("tryInsertHighScore", () => {
