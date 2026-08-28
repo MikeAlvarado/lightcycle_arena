@@ -25,8 +25,8 @@ export function HighScoresPanel({
   return (
     <div className="leaderboard" aria-label="Leaderboard">
       <div className="leaderboard-header">
-        <h3 className="leaderboard-title">Leaderboard</h3>
-        <p className="leaderboard-subtitle">Top {visibleEntries.length}</p>
+        <h3 className="leaderboard-title">Top runs</h3>
+        <p className="leaderboard-subtitle">this machine</p>
       </div>
 
       <table className="leaderboard-table" role="table">

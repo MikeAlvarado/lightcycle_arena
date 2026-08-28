@@ -10,7 +10,6 @@ const GRID_MINOR_COLOR = "rgba(47, 107, 255, 0.22)";
 const GRID_MAJOR_COLOR = "rgba(90, 175, 255, 0.5)";
 const ARENA_BORDER_COLOR = "#00d8ff";
 const TRAIL_CORE_COLOR = "rgba(255, 255, 255, 0.8)";
-const HINT_COLOR = "#7fd7ff";
 
 /** A brighter line every few cells keeps the floor readable without noise. */
 const MAJOR_LINE_EVERY = 5;
@@ -214,22 +213,5 @@ export function drawHeadAtLatticeVertex(
   context.beginPath();
   context.arc(0, -radius * 0.1, Math.max(0.8, radius * 0.24), 0, Math.PI * 2);
   context.fill();
-  context.restore();
-}
-
-/**
- * Draw the controls hint (desktop only; mobile uses the on-screen pad).
- * The text differs per view, so the caller supplies it.
- */
-export function drawControlsHint(
-  context: CanvasRenderingContext2D,
-  hintText: string
-): void {
-  context.save();
-  context.fillStyle = HINT_COLOR;
-  context.font = "12px ui-monospace, Menlo, Consolas, monospace";
-  context.shadowColor = HINT_COLOR;
-  context.shadowBlur = 6;
-  context.fillText(hintText, 10, 20);
   context.restore();
 }

@@ -163,7 +163,7 @@ export function useArenaRenderers(options: ArenaRenderersOptions): ArenaRenderer
 
       const frame = current.buildFrame(interpolationAlpha);
       rendererRef.current?.draw(frame);
-      minimapRendererRef.current?.draw({ ...frame, controlsHint: null });
+      minimapRendererRef.current?.draw(frame);
 
       frameRequestId = requestAnimationFrame(animationLoop);
     }
@@ -172,6 +172,11 @@ export function useArenaRenderers(options: ArenaRenderersOptions): ArenaRenderer
     return () => cancelAnimationFrame(frameRequestId);
   }, []);
 
+  /*
+   * The arena is sized by its container, not by the window: the HUD appearing
+   * when a run starts resizes the zone without the window moving an inch.
+   * Watching the element covers both, and window resizes come through it too.
+   */
   useEffect(() => {
     function handleResize(): void {
       rendererRef.current?.resize();
@@ -179,8 +184,16 @@ export function useArenaRenderers(options: ArenaRenderersOptions): ArenaRenderer
     }
 
     handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+
+    const zone = canvasRef.current?.parentElement;
+    if (!zone || typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", handleResize);
+      return () => window.removeEventListener("resize", handleResize);
+    }
+
+    const observer = new ResizeObserver(handleResize);
+    observer.observe(zone);
+    return () => observer.disconnect();
   }, [renderMode, generation]);
 
   const resetRound = useCallback((): void => {

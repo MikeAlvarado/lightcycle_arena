@@ -2,7 +2,6 @@
 import type { GridConfig } from "../utils/gridConfig";
 import type { GameRenderer, RenderFrame } from "./types";
 import {
-  drawControlsHint,
   drawGrid,
   drawHeadAtLatticeVertex,
   drawLatticeTrails,
@@ -103,8 +102,6 @@ export function createCanvas2DRenderer(
         player.direction
       );
     }
-
-    if (frame.controlsHint) drawControlsHint(context, frame.controlsHint);
   }
 
   return {

@@ -1,159 +1,384 @@
+/* ===== Overlay ===== */
 .canvas-overlay {
   position: absolute;
   inset: 0;
+  z-index: var(--layer-overlay);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /*
+   * Safe centring keeps tall content from being clipped at the top edge: when
+   * the card outgrows the arena it falls back to the start and scrolls, rather
+   * than losing its own title off-screen.
+   */
+  justify-content: safe center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   text-align: center;
-  z-index: 10;
+  padding: 20px 24px;
   pointer-events: none;
 
-  /* Fondo difuminado */
-  background: rgba(10, 10, 10, 0.75);
-  backdrop-filter: blur(6px) brightness(1.2);
-  border-radius: 12px;
+  /* Dark enough to read against, sheer enough to keep the arena alive behind. */
+  background:
+    radial-gradient(95% 75% at 50% 45%, rgba(5, 9, 18, 0.72) 0%, rgba(3, 5, 11, 0.93) 100%);
+  backdrop-filter: blur(4px) saturate(0.95);
+  border-radius: var(--radius-panel);
+
+  animation: overlay-in 220ms var(--ease-out) both;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.canvas-overlay > * {
+  flex-shrink: 0;
 }
 
 .canvas-overlay h2 {
-  color: #00e0ff;
-  font-weight: 800;
-  font-size: 1.8rem;
-  text-shadow: 0 0 12px #00e0ff, 0 0 24px #00e0ff;
-  margin: 0 16px 8px 16px;
+  margin: 0 0 6px;
+  font-size: clamp(1.5rem, 3.6vw, 2.1rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-bright);
+  text-wrap: balance;
 }
 
 .canvas-overlay p {
-  color: #cfe8ff;
-  font-size: 1rem;
-  margin: 0 16px 16px 16px;
-  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+  max-width: 58ch;
+  margin: 0 0 16px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text-body);
+  text-wrap: pretty;
 }
 
+/* ===== Title screen ===== */
+.canvas-overlay.is-title {
+  gap: 2px;
+}
+
+@media (max-height: 620px) {
+  .canvas-overlay .title-tagline {
+    margin-bottom: 12px;
+  }
+
+  .canvas-overlay button.rule-toggle {
+    margin-top: 10px;
+  }
+
+  .leaderboard {
+    margin-top: 12px;
+  }
+}
+
+.wordmark {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-bottom: 4px;
+  line-height: 0.92;
+}
+
+.wordmark-line {
+  font-size: clamp(2.1rem, 7vw, 4rem);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--text-bright);
+  text-shadow: 0 0 40px rgba(53, 214, 255, 0.28);
+}
+
+/* The second line hangs off the first rather than sitting under its centre. */
+.wordmark-line-two {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--accent);
+  text-shadow: 0 0 40px rgba(255, 194, 58, 0.3);
+}
+
+.wordmark-rule {
+  display: block;
+  width: clamp(40px, 12vw, 110px);
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent-line));
+}
+
+.canvas-overlay .title-tagline {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 22px;
+}
+
+/* ===== Actions ===== */
 .overlay-actions {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  margin: 0 16px;
 }
 
-/* A rule of the game, offered rather than tucked away with the preferences. */
-.canvas-overlay button.rule-toggle {
+.canvas-overlay button {
   pointer-events: auto;
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin: 2px 16px 10px 16px;
-  padding: 8px 16px;
-  border-radius: 10px;
-  border: 1px dashed rgba(0, 224, 255, 0.5);
-  background: rgba(0, 224, 255, 0.06);
-  color: #cfe8ff;
+  font-family: var(--font-display);
   font-size: 0.9rem;
   font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 10px 22px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+  transition:
+    background 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+
+.canvas-overlay button:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #10141f;
+}
+
+.canvas-overlay button:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.canvas-overlay button.secondary {
+  border-color: var(--line-soft);
+  background: transparent;
+  color: var(--text-body);
+}
+
+.canvas-overlay button.secondary:hover {
+  border-color: var(--line-strong);
+  background: rgba(120, 160, 220, 0.12);
+  color: var(--text-bright);
+}
+
+.canvas-overlay button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.canvas-overlay button:disabled:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+  transform: none;
+}
+
+/* ===== Mode list =====
+ * A list you read down, the way a game menu works — not three marketing cards
+ * side by side.
+ */
+.overlay-actions.is-menu {
+  flex-direction: column;
+  gap: 8px;
+  width: min(460px, 100%);
+}
+
+.overlay-actions.is-menu button {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 14px;
+  text-align: left;
+  padding: 13px 18px;
+  border-color: var(--line-faint);
+  background: var(--surface-panel);
+  color: var(--text-bright);
+  overflow: hidden;
+}
+
+/* A bar that slides in from the left on hover, like a cursor landing. */
+.overlay-actions.is-menu button::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform 180ms var(--ease-out);
+}
+
+.overlay-actions.is-menu button:hover,
+.overlay-actions.is-menu button:focus-visible {
+  background: var(--surface-raised);
+  border-color: var(--accent-line);
+  color: var(--text-bright);
+  transform: translateX(2px);
+}
+
+.overlay-actions.is-menu button:hover::before,
+.overlay-actions.is-menu button:focus-visible::before {
+  transform: scaleY(1);
+}
+
+.action-index {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.action-label {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.action-note {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  justify-self: end;
+  text-align: right;
+}
+
+/* ===== Rule and preference switches ===== */
+.canvas-overlay button.rule-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: min(460px, 100%);
+  margin: 16px 0 6px;
+  padding: 10px 18px;
+  border-style: dashed;
+  border-color: var(--line-soft);
+  background: transparent;
+  color: var(--text-body);
+  font-weight: 600;
+}
+
+.canvas-overlay button.rule-toggle:hover {
+  border-color: var(--line-strong);
+  background: rgba(120, 160, 220, 0.1);
+  color: var(--text-bright);
 }
 
 .canvas-overlay button.rule-toggle.is-on {
   border-style: solid;
-  border-color: #ffc23a;
-  background: rgba(255, 194, 58, 0.12);
-  color: #ffe6ac;
-  box-shadow: 0 0 12px rgba(255, 194, 58, 0.25);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
-.canvas-overlay button.rule-toggle:hover {
-  background: rgba(0, 224, 255, 0.18);
-  color: #ffffff;
-  box-shadow: none;
-  transform: none;
+.rule-toggle-name {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.82rem;
 }
 
 .rule-toggle-blurb {
+  flex: 1;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
   font-weight: 400;
-  font-size: 0.8rem;
-  opacity: 0.75;
+  color: var(--text-muted);
+}
+
+.canvas-overlay .rule-toggle.is-on .rule-toggle-blurb {
+  color: rgba(255, 226, 160, 0.75);
 }
 
 .rule-toggle-state {
-  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
   font-weight: 700;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
-/* Small on/off switches (sound, glow) shown under the menu copy. */
 .overlay-toggles {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   justify-content: center;
-  margin: 0 16px 12px 16px;
+  margin: 4px 0 14px;
 }
 
 .canvas-overlay .overlay-toggles button {
-  padding: 5px 12px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  padding: 4px 12px;
   border-radius: 999px;
-  border-color: rgba(0, 224, 255, 0.45);
-  color: #bfe9ff;
-  box-shadow: none;
+  border-color: var(--line-faint);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-.canvas-overlay .overlay-toggles button[aria-pressed='false'] {
-  opacity: 0.55;
+.canvas-overlay .overlay-toggles button[aria-pressed='true'] {
+  border-color: var(--line-soft);
+  color: var(--text-body);
+}
+
+.canvas-overlay .overlay-toggles button:hover {
+  border-color: var(--line-strong);
+  background: rgba(120, 160, 220, 0.12);
+  color: var(--text-bright);
 }
 
 .canvas-overlay .menu-hint {
-  font-size: 0.85rem;
-  opacity: 0.7;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  line-height: 1.6;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
   margin-bottom: 12px;
 }
 
-.canvas-overlay button {
-  pointer-events: auto;
-  padding: 10px 24px;
-  font-size: 1rem;
-  border-radius: 8px;
-  border: 1px solid #00e0ff;
-  background: rgba(0, 0, 0, 0.8);
-  color: #00e0ff;
+/* ===== Round verdict ===== */
+.canvas-overlay .verdict-line {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  color: var(--text-body);
+  margin-bottom: 18px;
+}
+
+.final-score {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 16px;
+}
+
+.final-score-key {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.final-score-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 2rem;
   font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 0 8px rgba(0, 224, 255, 0.3);
-}
-
-.canvas-overlay button:hover {
-  background: #00e0ff;
-  color: #000;
-  box-shadow: 0 0 16px #00e0ff, 0 0 32px #00e0ff;
-  transform: scale(1.05);
-}
-
-.canvas-overlay button.secondary {
-  border-color: #b02bff;
-  color: #edc8ff;
-  box-shadow: 0 0 8px rgba(176, 43, 255, 0.3);
-}
-
-.canvas-overlay button.secondary:hover {
-  background: #b02bff;
-  color: #000;
-  box-shadow: 0 0 16px #b02bff, 0 0 32px #b02bff;
-}
-
-.canvas-overlay button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.canvas-overlay button:disabled:hover {
-  background: rgba(0, 0, 0, 0.8);
-  color: #00e0ff;
-  box-shadow: 0 0 8px rgba(0, 224, 255, 0.3);
-  transform: none;
+  color: var(--accent);
 }
 
 /* Inline "change name" affordance inside a sentence. */
@@ -161,16 +386,15 @@
   padding: 0;
   border: none;
   background: none;
-  box-shadow: none;
   font: inherit;
-  color: #7fd7ff;
+  color: var(--accent);
   text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .canvas-overlay button.link-button:hover {
   background: none;
-  color: #ffffff;
-  box-shadow: none;
+  color: var(--text-bright);
   transform: none;
 }
 
@@ -180,22 +404,28 @@
   gap: 8px;
   align-items: center;
   justify-content: center;
-  margin: 4px 16px 14px 16px;
+  margin: 4px 0 16px;
   flex-wrap: wrap;
 }
 
 .save-score-form input {
   pointer-events: auto;
-  padding: 10px 12px;
-  font-size: 1rem;
-  border-radius: 8px;
-  border: 1px solid #00e0ff;
-  background: rgba(0, 0, 0, 0.8);
-  color: #eaf6ff;
+  padding: 9px 12px;
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--line-soft);
+  background: rgba(3, 5, 11, 0.8);
+  color: var(--text-bright);
   outline: none;
   max-width: 200px;
+  transition: border-color 160ms var(--ease-out);
+}
+
+.save-score-form input:focus {
+  border-color: var(--accent-line);
 }
 
 .save-score-form input::placeholder {
-  color: #7fa8bf;
+  color: var(--text-muted);
 }

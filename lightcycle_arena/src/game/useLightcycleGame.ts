@@ -321,18 +321,6 @@ export function useLightcycleGame(): LightcycleGame {
   }
 
   function buildFrame(interpolationAlpha: number): RenderFrame {
-    const cutHint = jetWallEnabled
-      ? state.matchMode === "versus"
-        ? " | Cut: Space / Shift"
-        : " | Cut: Space"
-      : "";
-    const controlsHint =
-      isMobile || state.renderMode !== "2d"
-        ? null
-        : state.matchMode === "versus"
-          ? `P1: Arrows | P2: WASD${cutHint} | Reset: R | Pause: Esc`
-          : `Move: Arrows/WASD${cutHint} | Reset: R | Pause: Esc`;
-
     return {
       grid: GRID_CONFIG,
       players: [
@@ -341,7 +329,6 @@ export function useLightcycleGame(): LightcycleGame {
         viewFor(rivalRef.current, rivalTrailRef.current, "always"),
       ],
       interpolationAlpha,
-      controlsHint,
       speedFactor: (state.level - 1) / Math.max(1, LEVEL_COUNT - 1),
     };
   }

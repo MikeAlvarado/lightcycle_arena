@@ -9,33 +9,46 @@ export interface OverlayAction {
   label: string;
   onSelect: () => void;
   variant?: "primary" | "secondary";
+  /** Short aside shown beside the label in the menu layout. */
+  note?: string;
   /** Warm something up when the player hovers or tabs onto the button. */
   onPrefetch?: () => void;
 }
 
 interface GameOverlayProps {
   title: string;
+  /** Replaces the heading, for the title screen's wordmark. */
+  titleSlot?: ReactNode;
+  variant?: "panel" | "title";
   paragraph?: string;
   actions?: OverlayAction[];
+  /** "menu" stacks the actions into a list you read down. */
+  actionsLayout?: "row" | "menu";
   showLeaderboard?: boolean;
   leaderboardEntries?: HighScoreEntry[];
   maxRows?: number;
   extraContent?: ReactNode;
+  /** Rendered after the actions, for anything the actions come before. */
+  footer?: ReactNode;
   styleOverride?: CSSProperties;
 }
 
 /**
- * Reusable overlay that renders a centered card with title, paragraph, any
- * number of actions and optionally a leaderboard.
+ * The card that covers the arena between rounds: title screen, verdict, pause
+ * and game over all wear it.
  */
 export function GameOverlay({
   title,
+  titleSlot,
+  variant = "panel",
   paragraph,
   actions = [],
+  actionsLayout = "row",
   showLeaderboard = false,
   leaderboardEntries = [],
   maxRows = 5,
   extraContent,
+  footer,
   styleOverride,
 }: GameOverlayProps): JSX.Element {
   const cardReference = useRef<HTMLDivElement | null>(null);
@@ -53,36 +66,58 @@ export function GameOverlay({
     target?.focus();
   }, [title]);
 
+  const isMenu = actionsLayout === "menu";
+
   return (
     <div
-      className="canvas-overlay"
+      className={`canvas-overlay${variant === "title" ? " is-title" : ""}`}
       style={styleOverride}
       role="dialog"
       aria-modal="true"
       aria-label={title}
       ref={cardReference}
     >
-      <h2>{title}</h2>
+      {titleSlot ?? <h2>{title}</h2>}
 
       {paragraph && <p>{paragraph}</p>}
 
       {extraContent}
 
       {actions.length > 0 && (
-        <div className="overlay-actions">
-          {actions.map((action) => (
+        <div className={`overlay-actions${isMenu ? " is-menu" : ""}`}>
+          {actions.map((action, index) => (
             <button
               key={action.label}
               className={action.variant === "secondary" ? "secondary" : undefined}
+              // The name stays the label alone; the index and the aside are
+              // decoration, and a screen reader shouldn't have to wade through
+              // them to find the button it was looking for.
+              aria-label={isMenu ? action.label : undefined}
               onClick={action.onSelect}
               onPointerEnter={action.onPrefetch}
               onFocus={action.onPrefetch}
             >
-              {action.label}
+              {isMenu ? (
+                <>
+                  <span className="action-index" aria-hidden="true">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <span className="action-label">{action.label}</span>
+                  {action.note && (
+                    <span className="action-note" aria-hidden="true">
+                      {action.note}
+                    </span>
+                  )}
+                </>
+              ) : (
+                action.label
+              )}
             </button>
           ))}
         </div>
       )}
+
+      {footer}
 
       {showLeaderboard && leaderboardEntries.length > 0 && (
         <HighScoresPanel entries={leaderboardEntries} maxRows={maxRows} />

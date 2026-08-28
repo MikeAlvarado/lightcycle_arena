@@ -170,12 +170,14 @@ describe("GameCanvas", () => {
     render(<GameCanvas />);
     fireEvent.click(screen.getByRole("button", { name: "2D Classic" }));
 
-    expect(screen.getByText(/Lives: ❤❤❤/)).toBeInTheDocument();
+    // Lives are pips on the HUD, so the count is read off the label rather
+    // than off however many hearts happen to be drawn.
+    expect(screen.getByLabelText("3 lives left")).toBeInTheDocument();
 
     runFrames(300);
     fireEvent.keyDown(window, { key: "r" });
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
-    expect(screen.getByText(/Lives: ❤❤$/)).toBeInTheDocument();
+    expect(screen.getByLabelText("2 lives left")).toBeInTheDocument();
   });
 });

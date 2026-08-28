@@ -1,4 +1,50 @@
-/* RESET & BASE */
+/*
+ * Tokens first. Every colour, layer and font in the game comes from here, so
+ * the chrome can be re-tuned without hunting through five stylesheets.
+ */
+:root {
+  /* Surfaces: one blue-black family, no neutral greys mixed in. */
+  --surface-void: #03050b;
+  --surface-deep: #060a15;
+  --surface-panel: rgba(9, 14, 26, 0.88);
+  --surface-raised: rgba(20, 29, 48, 0.9);
+
+  --line-faint: rgba(120, 160, 220, 0.14);
+  --line-soft: rgba(120, 160, 220, 0.26);
+  --line-strong: rgba(150, 195, 255, 0.45);
+
+  /*
+   * One accent, and it is the player's gold. The chrome belongs to the rider
+   * you are, not to whichever program happens to be riding cyan tonight.
+   */
+  --accent: #ffc23a;
+  --accent-soft: rgba(255, 194, 58, 0.16);
+  --accent-line: rgba(255, 194, 58, 0.55);
+
+  /* The arena's own colour, used for the world rather than the interface. */
+  --grid-cyan: #35d6ff;
+  --grid-cyan-soft: rgba(53, 214, 255, 0.16);
+
+  --text-bright: #eaf1ff;
+  --text-body: #b7c8e4;
+  --text-muted: #7286a8;
+
+  --danger: #ff5a3c;
+
+  --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  /* One scale, so nothing has to guess with a 9999. */
+  --layer-minimap: 5;
+  --layer-hud: 10;
+  --layer-overlay: 20;
+  --layer-grain: 40;
+
+  --radius-panel: 14px;
+  --radius-control: 10px;
+  --ease-out: cubic-bezier(0.22, 0.68, 0.32, 1);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -13,16 +59,41 @@ body,
 }
 
 body {
-  background: #0b0b0b;
-  color: #eaeaea;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #0a1428 0%, transparent 60%),
+    var(--surface-void);
+  color: var(--text-body);
+  font-family: var(--font-display);
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ===== Desktop ===== */
-.game-stage {
+/*
+ * Grain and a vignette over everything. Flat vector surfaces read as a web
+ * page; a little noise reads as a screen you are looking through.
+ */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-grain);
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    radial-gradient(130% 100% at 50% 50%, transparent 45%, rgba(0, 0, 0, 0.55) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.25'/%3E%3C/svg%3E");
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ===== Stage ===== */
+.game-stage,
+.mobile-stage {
   display: flex;
   flex-direction: column;
-  height: 100vh;
   /* dvh tracks the visible viewport on mobile browsers (iOS Safari's 100vh
      includes the area behind the collapsing address bar) */
   height: 100dvh;
@@ -30,27 +101,31 @@ body {
   overflow: hidden;
 }
 
+/* A HUD is a thin band across the top. The arena gets everything else. */
 .hud-zone {
-  flex: 1;
-  min-height: 20vh;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12px;
-  border-bottom: 1px solid #222;
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--line-faint);
+  background: linear-gradient(180deg, var(--surface-deep) 0%, transparent 100%);
 }
 
 .canvas-zone {
-  flex: 8;
+  flex: 1;
   /* Anchors the overlay and the minimap to the arena in both views. */
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border: 1px solid #222;
-  border-radius: 12px;
-  margin: 8px;
+  border: 1px solid var(--line-faint);
+  border-radius: var(--radius-panel);
+  margin: 10px 12px 12px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 24px 70px -30px rgba(10, 40, 90, 0.9);
 }
 
 .canvas-zone canvas {
@@ -67,45 +142,44 @@ body {
 
 .canvas-zone .minimap-canvas {
   position: absolute;
-  right: 10px;
-  bottom: 10px;
+  right: 12px;
+  bottom: 12px;
   width: 176px;
   height: 132px;
-  z-index: 5;
+  z-index: var(--layer-minimap);
   pointer-events: none;
-  opacity: 0.85;
-  border: 1px solid rgba(0, 224, 255, 0.35);
-  border-radius: 6px;
-  box-shadow: 0 0 12px rgba(0, 224, 255, 0.2);
+  opacity: 0.9;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px -12px rgba(0, 10, 30, 0.9);
 }
 
 /* ===== Mobile ===== */
 @media (pointer: coarse),
 (max-width: 768px) {
-  .mobile-stage {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    height: 100dvh;
-    width: 100vw;
-  }
-
   .hud-zone {
-    flex: 0 0 auto;
-    padding: 6px;
-    border: none;
+    padding: 8px 10px 10px;
   }
 
   .canvas-zone {
     flex: 1 1 50%;
     min-height: 45vh;
-    border-radius: 8px;
-    margin: 4px;
+    border-radius: 10px;
+    margin: 6px;
+  }
+
+  /* Title screen: no HUD, no pad, so the arena zone is the whole screen. */
+  .mobile-stage > .canvas-zone:only-child {
+    flex: 1;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .canvas-zone .minimap-canvas {
-    right: 6px;
-    bottom: 6px;
+    right: 8px;
+    bottom: 8px;
     width: 104px;
     height: 78px;
   }
