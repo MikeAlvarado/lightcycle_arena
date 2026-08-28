@@ -112,14 +112,26 @@ export function GameCanvas(): JSX.Element {
       <button type='button' onClick={actions.toggleGlow} aria-pressed={game.glowEnabled}>
         Glow: {game.glowEnabled ? 'On' : 'Off'}
       </button>
-      <button
-        type='button'
-        onClick={actions.toggleJetWall}
-        aria-pressed={game.jetWallEnabled}
-      >
-        Jet Wall: {game.jetWallEnabled ? 'On' : 'Off'}
-      </button>
     </div>
+  );
+
+  /*
+   * The jet wall sat in the row above until it turned out nobody could find it:
+   * an off switch among two on ones reads as greyed out, and a rule of the game
+   * is not a preference like the sound. It gets its own line, its own words and
+   * full contrast in both states.
+   */
+  const jetWallRule = (
+    <button
+      type='button'
+      className={`rule-toggle${game.jetWallEnabled ? ' is-on' : ''}`}
+      onClick={actions.toggleJetWall}
+      aria-pressed={game.jetWallEnabled}
+    >
+      <span className='rule-toggle-name'>Jet Wall</span>
+      <span className='rule-toggle-blurb'>cut your wall, leave a gap</span>
+      <span className='rule-toggle-state'>{game.jetWallEnabled ? 'On' : 'Off'}</span>
+    </button>
   );
 
   /**
@@ -173,13 +185,14 @@ export function GameCanvas(): JSX.Element {
         showLeaderboard: true,
         extraContent: (
           <>
-            {preferenceToggles}
+            {jetWallRule}
             {game.jetWallEnabled && (
               <p className='menu-hint'>
-                Jet wall: Space switches your wall off and leaves a gap in it.
-                So does theirs — and they know how to use it.
+                Space switches your wall off and leaves a gap in it. So does
+                theirs — and they know how to use it.
               </p>
             )}
+            {preferenceToggles}
             <p className='menu-hint'>
               Enter starts a solo run in the last view used ({viewLabel})
             </p>

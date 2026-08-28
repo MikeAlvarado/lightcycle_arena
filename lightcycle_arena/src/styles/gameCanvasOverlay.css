@@ -39,6 +39,49 @@
   margin: 0 16px;
 }
 
+/* A rule of the game, offered rather than tucked away with the preferences. */
+.canvas-overlay button.rule-toggle {
+  pointer-events: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 2px 16px 10px 16px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px dashed rgba(0, 224, 255, 0.5);
+  background: rgba(0, 224, 255, 0.06);
+  color: #cfe8ff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.canvas-overlay button.rule-toggle.is-on {
+  border-style: solid;
+  border-color: #ffc23a;
+  background: rgba(255, 194, 58, 0.12);
+  color: #ffe6ac;
+  box-shadow: 0 0 12px rgba(255, 194, 58, 0.25);
+}
+
+.canvas-overlay button.rule-toggle:hover {
+  background: rgba(0, 224, 255, 0.18);
+  color: #ffffff;
+  box-shadow: none;
+  transform: none;
+}
+
+.rule-toggle-blurb {
+  font-weight: 400;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+.rule-toggle-state {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
 /* Small on/off switches (sound, glow) shown under the menu copy. */
 .overlay-toggles {
   display: flex;

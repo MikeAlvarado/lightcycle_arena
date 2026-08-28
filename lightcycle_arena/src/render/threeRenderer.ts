@@ -980,7 +980,11 @@ export function createThreeRenderer(
       const tipX = lerp(cornerX, headX, progress);
       const tipZ = lerp(cornerZ, headZ, progress);
 
-      if (visual.wasAlive && !player.isAlive) spawnCrashDebris(visual, tipX, tipZ);
+      if (visual.wasAlive && !player.isAlive) {
+        spawnCrashDebris(visual, tipX, tipZ);
+        // The rider derezzes and the wall goes out with them.
+        clearTrailMeshes(visual);
+      }
       visual.wasAlive = player.isAlive;
       visual.bike.visible = player.isAlive;
 
