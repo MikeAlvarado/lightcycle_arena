@@ -1,14 +1,13 @@
 // src/config/levels.ts
 import type { AiDifficulty } from "../ai/simpleAI";
+import { BOT_ROSTER, botForLevel } from "./bots";
 
 export const INITIAL_LIVES = 3;
-export const LEVEL_COUNT = 5;
+export const LEVEL_COUNT = BOT_ROSTER.length;
 
-/** Map level (1..5) -> AI difficulty */
+/** Map level (1..5) -> AI difficulty, by way of whoever rides at that level. */
 export function difficultyForLevel(level: number): AiDifficulty {
-  const table: AiDifficulty[] = ["Easy", "Normal", "Hard", "VeryHard", "Insane"];
-  const clamped = Math.max(1, Math.min(level, table.length));
-  return table[clamped - 1];
+  return botForLevel(level).difficulty;
 }
 
 /**

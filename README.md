@@ -16,7 +16,9 @@ A retro-inspired **Tron-style lightcycle** game built with **React + TypeScript*
 - Win a round to advance to the next level.
 - Lose all lives and your run ends — you’ll be prompted to save your score locally.
 
-Each level raises the AI's difficulty, the arena's speed and the point multiplier.
+Each level fields a different rider — Jarvis, Castor, Sark, Rinzler, CLU — and
+raises the arena's speed and the point multiplier with them. The last two don't
+just stay alive: they carve the arena in half and take your side of it.
 Meeting another rider head-on takes you both down.
 
 ---

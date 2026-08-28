@@ -8,6 +8,14 @@ import type { Direction, LatticeIndex, LatticeMatrix } from "../utils/latticeHel
  */
 export interface PlayerRenderView {
   color: string;
+  /** Name floated above the bike in the 3D view. */
+  label: string;
+  /**
+   * "always" keeps the name up — you need to know who you are chasing.
+   * "brief" shows it for a moment at the start of a round, which is all the
+   * reminder anyone needs of their own name.
+   */
+  labelMode: "always" | "brief";
   headLatticeIndex: LatticeIndex;
   /** Vertex the head came from during the current tick (for interpolation). */
   previousHeadLatticeIndex: LatticeIndex;
@@ -28,6 +36,8 @@ export interface RenderFrame {
    * because logic runs at 10 Hz and the camera at display rate.
    */
   interpolationAlpha: number;
+  /** 0 at the slowest level, 1 at the fastest. Drives the sense of speed. */
+  speedFactor: number;
   /** Desktop-only hint drawn on the board; null hides it. */
   controlsHint: string | null;
 }

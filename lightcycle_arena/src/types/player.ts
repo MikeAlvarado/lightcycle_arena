@@ -2,12 +2,15 @@
 import type { Direction, LatticeIndex } from "../utils/latticeHelpers";
 
 /**
- * Immutable info: identity and visuals.
+ * Who is on the bike.
+ *
+ * The id is the seat — player one, player two — and never changes. The name and
+ * colour do: each level fields a different rider in seat two.
  */
 export interface PlayerIdentity {
   readonly id: number;
-  readonly name: string;
-  readonly color: string;
+  name: string;
+  color: string;
 }
 
 /**

@@ -59,34 +59,43 @@ describe("GameCanvas", () => {
     expect(screen.getByRole("button", { name: "2 Players" })).toBeInTheDocument();
   });
 
-  it("takes both riders down when they meet head-on", () => {
-    // Two people, nobody steering: the bikes spawn facing each other on the
-    // same column, so this is a head-on every time. Whoever the loop resolves
-    // second used to ride away from it unharmed.
+  it("calls it a draw when both riders go down in the same tick", () => {
+    // Two people, nobody steering: the spawns are mirror images, so both bikes
+    // reach the wall on the very same tick. Riders used to be resolved one
+    // after the other, which handed the round to whoever went second.
     render(<GameCanvas />);
     fireEvent.click(screen.getByRole("button", { name: "2 Players" }));
 
-    runFrames(3000);
+    runFrames(4000);
 
-    expect(screen.getByRole("dialog")).toHaveTextContent("Draw");
-    expect(screen.getByRole("dialog")).toHaveTextContent(
-      "Yellow and Cyan went head-on."
-    );
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("Draw");
+    expect(dialog).toHaveTextContent("Yellow hit the arena wall.");
+    expect(dialog).toHaveTextContent("Cyan hit the arena wall.");
+
     // A draw is nobody's round.
-    expect(screen.getByText(/Yellow: 0/)).toBeInTheDocument();
-    expect(screen.getByText(/Cyan: 0/)).toBeInTheDocument();
+    expect(screen.getByText(/^Yellow: 0$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Cyan: 0$/)).toBeInTheDocument();
   });
 
-  it("names the wall a rider hit", () => {
+  it("credits the round to whoever is left standing, and says what happened", () => {
     render(<GameCanvas />);
     fireEvent.click(screen.getByRole("button", { name: "2 Players" }));
 
-    // Send player one into the arena wall on the left instead.
+    // Break the symmetry so the round ends with one rider down rather than two.
+    // Which of the two walls claims them is a matter of a tick either way, so
+    // this asserts the bookkeeping rather than the timing.
     fireEvent.keyDown(window, { key: "ArrowLeft" });
     runFrames(4000);
 
-    expect(screen.getByRole("dialog")).toHaveTextContent("Yellow hit the arena wall.");
-    expect(screen.getByText(/Cyan: 1/)).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("takes the round");
+    expect(dialog).toHaveTextContent(/wall/);
+
+    const tallyFor = (rider: string): number =>
+      Number(screen.getByText(new RegExp(`^${rider}: \\d+$`)).textContent!.split(": ")[1]);
+
+    expect(tallyFor("Yellow") + tallyFor("Cyan")).toBe(1);
   });
 
   it("pauses on P and carries on where it left off", () => {
