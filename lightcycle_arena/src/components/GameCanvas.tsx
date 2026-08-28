@@ -3,11 +3,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode, RefObject } from 'react';
 
 // Types (propios)
-import type { GameState, HighScoreEntry, RenderMode } from '../types/game';
+import type {
+  GameState,
+  HighScoreEntry,
+  MatchMode,
+  RenderMode,
+  RoundOutcome,
+} from '../types/game';
 import type { LatticeMatrix, LogicalVertex } from '../utils/latticeHelpers';
 import type { Player, PlayerForInput } from '../types/player';
 import type { AiDifficulty } from '../ai/simpleAI';
+import type { CrashCause } from '../game/movement';
 import type { GameRenderer, RenderFrame } from '../render/types';
+import type { KeyboardControls } from '../utils/inputHandlers';
+import type { SteeringMode } from '../utils/steering';
+import type { OverlayAction } from './GameOverlay';
 
 // Config / constantes
 import {
@@ -16,6 +26,8 @@ import {
   bonusForLevel,
   difficultyForLevel,
   pointsPerSecond,
+  stepMillisecondsForLevel,
+  ticksPerSecondAtLevel,
 } from '../config/levels';
 import { GRID_CONFIG } from '../utils/gridConfig';
 
@@ -23,31 +35,32 @@ import { GRID_CONFIG } from '../utils/gridConfig';
 import {
   applyPendingDirection,
   createEmptyLattice,
-  isInsideLattice,
-  isOccupied,
-  occupy,
-  stepOnLattice,
   toLatticeVertexIndices,
 } from '../utils/latticeHelpers';
+import { advanceRiders, describeCrash } from '../game/movement';
 import {
+  loadGlowPreference,
   loadHighScoreMax,
   loadHighScores,
   loadPlayerName,
   loadRenderMode,
+  loadSoundEnabled,
+  saveGlowPreference,
   savePlayerName,
   saveRenderMode,
+  saveSoundEnabled,
   tryInsertHighScore,
 } from '../utils/storage';
 
 // Entrada / renderizado
 import { handleKeyDown as handleKeyDownBase } from '../utils/inputHandlers';
-import type { SteeringMode } from '../utils/steering';
 import { resolveSteering } from '../utils/steering';
 import { createCanvas2DRenderer } from '../render/canvas2dRenderer';
 import { loadThreeRenderer } from '../render/loadThreeRenderer';
 
-// IA y hooks
+// IA, audio y hooks
 import { AI_PARAMS, decideNextDirection } from '../ai/simpleAI';
+import { getSoundEngine } from '../audio/soundEngine';
 import { useIsMobile } from '../hooks/useIsMobile';
 
 // Componentes UI
@@ -58,6 +71,14 @@ import { GameOverlay } from './GameOverlay';
 import '../styles/gameCanvasOverlay.css';
 import '../styles/gameUI.css';
 
+const PLAYER_ONE_COLOR = '#ffc23a';
+const PLAYER_TWO_COLOR = '#31d7ff';
+const PLAYER_ONE_NAME = 'Yellow';
+const PLAYER_TWO_NAME = 'Cyan';
+
+/** At most this much elapsed time is replayed in one frame (3 logic ticks). */
+const MAXIMUM_CATCH_UP_MILLISECONDS = 300;
+
 export function GameCanvas(): JSX.Element {
   // Loop timing
   const canvasReference = useRef<HTMLCanvasElement | null>(null);
@@ -65,15 +86,15 @@ export function GameCanvas(): JSX.Element {
   const requestIdReference = useRef<number>(0);
   const lastFrameTimestamp = useRef<number>(0);
   const accumulatedMilliseconds = useRef<number>(0);
-  const logicStepMilliseconds = 100; // 10 Hz
-  /** At most this much elapsed time is replayed in one frame (3 logic ticks). */
-  const MAXIMUM_CATCH_UP_MILLISECONDS = 300;
   const tickCounterRef = useRef<number>(0);
 
   // Renderers (2D board, 3D cockpit, plus the little 2D map shown in 3D)
   const rendererRef = useRef<GameRenderer | null>(null);
   const minimapRendererRef = useRef<GameRenderer | null>(null);
   const [renderMode, setRenderMode] = useState<RenderMode>(loadRenderMode);
+  const [matchMode, setMatchMode] = useState<MatchMode>('solo');
+  /** Bumped to rebuild the 3D scene after the GPU hands the context back. */
+  const [rendererGeneration, setRendererGeneration] = useState<number>(0);
 
   // Lattices
   const occupancyLatticeRef = useRef<LatticeMatrix>(
@@ -88,30 +109,42 @@ export function GameCanvas(): JSX.Element {
 
   // Game meta
   const [gameState, setGameState] = useState<GameState>('menu');
+  const [isPaused, setIsPaused] = useState<boolean>(false);
   const [level, setLevel] = useState<number>(1);
   const [lives, setLives] = useState<number>(INITIAL_LIVES);
   const [score, setScore] = useState<number>(0);
+  const [roundWins, setRoundWins] = useState<[number, number]>([0, 0]);
   const [highScore, setHighScore] = useState<number>(loadHighScoreMax);
   const [playerName, setPlayerName] = useState<string | null>(loadPlayerName);
   const [leaderboard, setLeaderboard] = useState<HighScoreEntry[]>(() =>
     loadHighScores()
   );
 
-  const [overlayMessage, setOverlayMessage] = useState<string | null>(null);
+  // How the last round ended, and the line describing the wreck.
+  const [roundOutcome, setRoundOutcome] = useState<RoundOutcome | null>(null);
+  const [roundMessage, setRoundMessage] = useState<string | null>(null);
+  const [gameOverReason, setGameOverReason] = useState<
+    'victory' | 'outOfLives' | 'none'
+  >('none');
 
   // Inline "save your score" form shown on game over when no name is stored yet
   const [needsNameForSave, setNeedsNameForSave] = useState<boolean>(false);
   const [nameDraft, setNameDraft] = useState<string>('');
   const pendingScoreRef = useRef<number>(0);
 
-  // Razón del fin de la run (solo para el overlay final)
-  const [gameOverReason, setGameOverReason] = useState<
-    'victory' | 'outOfLives' | 'none'
-  >('none');
-
   // Evitar doble guardado al final de la run
   const savedThisRunRef = useRef<boolean>(false);
   const isMobile = useIsMobile();
+
+  // Preferencias
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(loadSoundEnabled);
+  // Kept as an opinion, not a value: with nobody's opinion on file the glow
+  // follows the device, and follows it again if the device changes its mind.
+  const [glowPreference, setGlowPreference] = useState<boolean | null>(
+    loadGlowPreference
+  );
+  const glowEnabled = glowPreference ?? !isMobile;
+  const sound = useMemo(() => getSoundEngine(), []);
 
   // Spawns
   const playerSpawn: LogicalVertex = useMemo(
@@ -132,8 +165,8 @@ export function GameCanvas(): JSX.Element {
   // Players
   const playerOneRef = useRef<Player>({
     id: 1,
-    name: 'Player One',
-    color: '#ffc23a',
+    name: PLAYER_ONE_NAME,
+    color: PLAYER_ONE_COLOR,
     headLatticeIndex: toLatticeVertexIndices(playerSpawn),
     previousHeadLatticeIndex: toLatticeVertexIndices(playerSpawn),
     direction: 'up',
@@ -143,8 +176,8 @@ export function GameCanvas(): JSX.Element {
   });
   const playerTwoRef = useRef<Player>({
     id: 2,
-    name: 'Bot',
-    color: '#31d7ff',
+    name: PLAYER_TWO_NAME,
+    color: PLAYER_TWO_COLOR,
     headLatticeIndex: toLatticeVertexIndices(botSpawn),
     previousHeadLatticeIndex: toLatticeVertexIndices(botSpawn),
     direction: 'down',
@@ -159,7 +192,7 @@ export function GameCanvas(): JSX.Element {
   /**
    * Looking down at the board, a key press is a compass heading. Riding behind
    * the bike it has to be a turn instead, or steering inverts every time the
-   * bike faces south.
+   * bike faces south. Player two always rides the flat board.
    */
   const steeringMode: SteeringMode = renderMode === '3d' ? 'relative' : 'absolute';
 
@@ -194,7 +227,8 @@ export function GameCanvas(): JSX.Element {
     playerTwoRef.current.isAlive = true;
     playerTwoRef.current.ticksSurvived = 0;
 
-    setOverlayMessage(null);
+    setRoundOutcome(null);
+    setRoundMessage(null);
     savedThisRunRef.current = false;
     tickCounterRef.current = 0;
 
@@ -206,85 +240,29 @@ export function GameCanvas(): JSX.Element {
     lastFrameTimestamp.current = 0;
   }, [playerSpawn, botSpawn]);
 
-  // New run (after gameOver)
-  const startNewRun = useCallback((): void => {
-    setLevel(1);
-    setLives(INITIAL_LIVES);
-    setScore(0);
-    setNeedsNameForSave(false);
-    setGameState('playing');
-    resetRound();
-  }, [resetRound]);
-
-  /** Starts a fresh run in the chosen view and remembers it for next time. */
-  const startRunInMode = useCallback(
-    (mode: RenderMode): void => {
+  /** Start a fresh run in the given match and view, remembering the view. */
+  const startRun = useCallback(
+    (match: MatchMode, mode: RenderMode): void => {
+      setMatchMode(match);
       setRenderMode(mode);
       saveRenderMode(mode);
-      startNewRun();
+
+      setLevel(1);
+      setLives(INITIAL_LIVES);
+      setScore(0);
+      setRoundWins([0, 0]);
+      setGameOverReason('none');
+      setNeedsNameForSave(false);
+      setIsPaused(false);
+      setGameState('playing');
+      resetRound();
     },
-    [startNewRun]
+    [resetRound]
   );
 
-  // Movement
-  function moveOnePlayer(playerRef: RefObject<Player>): void {
-    applyPendingDirection(playerRef);
-
-    const fromVertex = playerRef.current.headLatticeIndex;
-    const { traversedEdgeCellInLattice, destinationVertexInLattice } =
-      stepOnLattice(fromVertex, playerRef.current.direction);
-
-    if (
-      !isInsideLattice(traversedEdgeCellInLattice, GRID_CONFIG) ||
-      !isInsideLattice(destinationVertexInLattice, GRID_CONFIG) ||
-      isOccupied(occupancyLatticeRef.current, traversedEdgeCellInLattice) ||
-      isOccupied(occupancyLatticeRef.current, destinationVertexInLattice)
-    ) {
-      playerRef.current.isAlive = false;
-      // Crashing leaves the head where it is, so collapse the interpolation
-      // segment: the 3D bike parks on its last vertex instead of sliding on.
-      playerRef.current.previousHeadLatticeIndex = fromVertex;
-      return;
-    }
-
-    occupy(occupancyLatticeRef.current, fromVertex);
-    occupy(occupancyLatticeRef.current, traversedEdgeCellInLattice);
-
-    const perPlayer =
-      playerRef.current.id === 1
-        ? playerOneLatticeRef.current
-        : playerTwoLatticeRef.current;
-    occupy(perPlayer, fromVertex);
-    occupy(perPlayer, traversedEdgeCellInLattice);
-
-    playerRef.current.previousHeadLatticeIndex = fromVertex;
-    playerRef.current.headLatticeIndex = destinationVertexInLattice;
-    playerRef.current.ticksSurvived += 1;
-  }
-
-  // Round end flow (win/lose) — saves score in roundEnd only
-  function endRoundWithResult(roundOutcome: 'win' | 'lose'): void {
-    if (roundOutcome === 'win') {
-      setScore((previousScore) => previousScore + bonusForLevel(level));
-      setOverlayMessage('You win! Level cleared.');
-    } else {
-      setOverlayMessage('Bot wins! You crashed.');
-    }
-
-    // Transition to roundEnd (the run is still ongoing)
-    setGameState('roundEnd');
-  }
-
-  /**
-   * Manual reset (R key / on-screen Reset button) during play counts as a
-   * lost round, same as a crash. Without this, resetting right before a
-   * crash would dodge losing a life for free, making lives meaningless.
-   */
-  function handleManualReset(): void {
-    if (gameState !== 'playing') return;
-    setOverlayMessage('Round reset — life lost.');
-    setGameState('roundEnd');
-  }
+  const startNewRun = useCallback((): void => {
+    startRun(matchMode, renderMode);
+  }, [startRun, matchMode, renderMode]);
 
   /** Persist a score entry and refresh the leaderboard/high-score UI state. */
   function persistScore(name: string): void {
@@ -322,12 +300,6 @@ export function GameCanvas(): JSX.Element {
       setNeedsNameForSave(true);
     }
 
-    // Show proper overlay depending on run result
-    if (runResult === 'victory') {
-      setOverlayMessage('Run Complete! Champion.');
-    } else {
-      setOverlayMessage('Game Over');
-    }
     setGameState('gameOver');
   }
 
@@ -342,48 +314,109 @@ export function GameCanvas(): JSX.Element {
     setNeedsNameForSave(false);
   }
 
-  // Per-tick logic
-  function updateLogic(): void {
+  /** Close the round and say what happened, in both riders' words. */
+  function endRound(crashes: Array<CrashCause | null>): void {
+    const outcome: RoundOutcome =
+      crashes[0] && crashes[1] ? 'draw' : crashes[0] ? 'lose' : 'win';
+
+    const lines: string[] = [];
+    if (crashes[0]) {
+      lines.push(describeCrash(crashes[0], PLAYER_ONE_NAME, PLAYER_TWO_NAME));
+    }
+    // A head-on already names both riders; don't say it twice.
+    if (crashes[1] && !(crashes[0] === 'headOn' && crashes[1] === 'headOn')) {
+      lines.push(describeCrash(crashes[1], PLAYER_TWO_NAME, PLAYER_ONE_NAME));
+    }
+
+    setRoundOutcome(outcome);
+    setRoundMessage(lines.join(' '));
+
+    if (matchMode === 'versus') {
+      setRoundWins(([first, second]) =>
+        outcome === 'win'
+          ? [first + 1, second]
+          : outcome === 'lose'
+            ? [first, second + 1]
+            : [first, second]
+      );
+    } else if (outcome === 'win') {
+      setScore((previousScore) => previousScore + bonusForLevel(level));
+    }
+
+    if (outcome === 'win') sound.levelClear();
+    else sound.crash();
+
+    setGameState('roundEnd');
+  }
+
+  /**
+   * Manual reset (R key / on-screen Reset button) during play counts as a
+   * lost round, same as a crash. Without this, resetting right before a
+   * crash would dodge losing a life for free, making lives meaningless.
+   * In a versus match nobody is awarded the round.
+   */
+  function handleManualReset(): void {
     if (gameState !== 'playing') return;
 
-    // Player
-    if (playerOneRef.current.isAlive) moveOnePlayer(playerOneRef);
-    if (!playerOneRef.current.isAlive) {
-      endRoundWithResult('lose');
-      return;
+    setRoundOutcome(matchMode === 'versus' ? 'draw' : 'lose');
+    setRoundMessage(
+      matchMode === 'versus' ? 'Round reset.' : 'Round reset — life lost.'
+    );
+    setGameState('roundEnd');
+  }
+
+  function togglePause(): void {
+    if (gameState !== 'playing') return;
+    setIsPaused((paused) => !paused);
+  }
+
+  // Per-tick logic
+  function updateLogic(): void {
+    if (gameState !== 'playing' || isPaused) return;
+
+    // Bot decision cadence by difficulty (a second person needs no help)
+    if (matchMode === 'solo' && playerTwoRef.current.isAlive) {
+      const params = AI_PARAMS[currentDifficulty()];
+      // Math.max guards against a 0 cadence: n % 0 is NaN, which would silently
+      // disable the bot's decision-making for that difficulty.
+      const decisionCadence = Math.max(1, params.decisionEveryNTicks);
+
+      if (tickCounterRef.current % decisionCadence === 0) {
+        playerTwoRef.current.pendingDirection = decideNextDirection(
+          {
+            grid: GRID_CONFIG,
+            lattice: occupancyLatticeRef.current,
+            self: playerTwoRef.current,
+            opponent: playerOneRef.current,
+          },
+          currentDifficulty()
+        );
+      }
     }
 
-    // Bot decision cadence by difficulty
-    const params = AI_PARAMS[currentDifficulty()];
-    // Math.max guards against a 0 cadence: n % 0 is NaN, which would silently
-    // disable the bot's decision-making for that difficulty.
-    const decisionCadence = Math.max(1, params.decisionEveryNTicks);
-    if (
-      playerTwoRef.current.isAlive &&
-      tickCounterRef.current % decisionCadence === 0
-    ) {
-      const aiView = {
-        grid: GRID_CONFIG,
-        lattice: occupancyLatticeRef.current,
-        self: playerTwoRef.current,
-        opponent: playerOneRef.current,
-      };
-      playerTwoRef.current.pendingDirection = decideNextDirection(
-        aiView,
-        currentDifficulty()
-      );
-    }
+    applyPendingDirection(playerOneRef);
+    applyPendingDirection(playerTwoRef);
 
-    // Bot move
-    if (playerTwoRef.current.isAlive) moveOnePlayer(playerTwoRef);
-    if (!playerTwoRef.current.isAlive) {
-      endRoundWithResult('win');
+    // Both riders are resolved against the same board, so a head-on takes them
+    // both down instead of whoever happened to be moved second.
+    const crashes = advanceRiders(
+      [playerOneRef.current, playerTwoRef.current],
+      GRID_CONFIG,
+      occupancyLatticeRef.current,
+      [playerOneLatticeRef.current, playerTwoLatticeRef.current]
+    );
+
+    if (crashes[0] || crashes[1]) {
+      endRound(crashes);
       return;
     }
 
     tickCounterRef.current += 1;
 
-    if (tickCounterRef.current % 10 === 0) {
+    if (
+      matchMode === 'solo' &&
+      tickCounterRef.current % ticksPerSecondAtLevel(level) === 0
+    ) {
       setScore((previousScore) => previousScore + pointsPerSecond(level));
     }
   }
@@ -394,6 +427,13 @@ export function GameCanvas(): JSX.Element {
    * logic tick: the 2D board ignores it, the 3D cockpit rides on it.
    */
   function buildRenderFrame(interpolationAlpha: number): RenderFrame {
+    const controlsHint =
+      isMobile || renderMode !== '2d'
+        ? null
+        : matchMode === 'versus'
+          ? 'P1: Arrows | P2: WASD | Reset: R | Pause: P'
+          : 'Move: Arrows/WASD | Reset: R | Pause: P';
+
     return {
       grid: GRID_CONFIG,
       players: [
@@ -417,18 +457,48 @@ export function GameCanvas(): JSX.Element {
         },
       ],
       interpolationAlpha,
-      controlsHint:
-        isMobile || renderMode !== '2d'
-          ? null
-          : 'Controls — Move: Arrows/WASD | Reset: R',
+      controlsHint,
     };
   }
 
-  // Fetch the 3D chunk while the player is still reading the menu, so picking
-  // the cockpit doesn't open on an empty canvas.
+  // Sound follows the game: one drone while riding, nothing while paused.
   useEffect(() => {
-    if (gameState === 'menu') void loadThreeRenderer();
-  }, [gameState]);
+    sound.setMuted(!soundEnabled);
+  }, [sound, soundEnabled]);
+
+  useEffect(() => {
+    if (gameState === 'playing' && !isPaused && soundEnabled) {
+      sound.startEngine((level - 1) / Math.max(1, LEVEL_COUNT - 1));
+    } else {
+      sound.stopEngine();
+    }
+  }, [sound, gameState, isPaused, soundEnabled, level]);
+
+  // A tab in the background stops getting frames, so pause rather than letting
+  // the player come back to a round that carried on without them.
+  useEffect(() => {
+    function handleVisibilityChange(): void {
+      if (document.hidden) setIsPaused(true);
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  // Coming back from a pause must not replay the pause as elapsed game time.
+  useEffect(() => {
+    if (!isPaused) {
+      lastFrameTimestamp.current = 0;
+      accumulatedMilliseconds.current = 0;
+    }
+  }, [isPaused]);
+
+  // A returning cockpit player gets the chunk warmed up; a player who only ever
+  // opens the flat board never downloads it at all.
+  useEffect(() => {
+    if (gameState === 'menu' && renderMode === '3d') void loadThreeRenderer();
+  }, [gameState, renderMode]);
 
   // Main renderer lifecycle. Kept out of the loop effect so switching level or
   // game state never tears down the 3D scene.
@@ -454,7 +524,10 @@ export function GameCanvas(): JSX.Element {
         if (cancelled) return;
 
         const renderer = createThreeRenderer(canvas, GRID_CONFIG, {
-          enableBloom: !isMobile,
+          enableBloom: glowEnabled,
+          // A dropped context takes every buffer with it, so the scene is
+          // rebuilt from scratch once the browser hands it back.
+          onContextRestored: () => setRendererGeneration((count) => count + 1),
         });
         rendererRef.current = renderer;
         renderer.resize();
@@ -474,7 +547,7 @@ export function GameCanvas(): JSX.Element {
       rendererRef.current?.dispose();
       rendererRef.current = null;
     };
-  }, [renderMode, isMobile, gameState]);
+  }, [renderMode, glowEnabled, rendererGeneration]);
 
   // Minimap: the 2D board reused at postage-stamp size, so the cockpit view
   // doesn't cost the player all arena awareness.
@@ -482,11 +555,9 @@ export function GameCanvas(): JSX.Element {
     const minimapCanvas = minimapCanvasReference.current;
     if (renderMode !== '3d' || !minimapCanvas) return;
 
-    const minimapRenderer = createCanvas2DRenderer(
-      minimapCanvas,
-      GRID_CONFIG,
-      { sizing: 'match-css-size' }
-    );
+    const minimapRenderer = createCanvas2DRenderer(minimapCanvas, GRID_CONFIG, {
+      sizing: 'match-css-size',
+    });
     minimapRendererRef.current = minimapRenderer;
     minimapRenderer.resize();
 
@@ -498,6 +569,8 @@ export function GameCanvas(): JSX.Element {
 
   // Loop + draw
   useEffect(() => {
+    const logicStepMilliseconds = stepMillisecondsForLevel(level);
+
     function animationLoop(currentTimestamp: number): void {
       if (!lastFrameTimestamp.current)
         lastFrameTimestamp.current = currentTimestamp;
@@ -519,7 +592,7 @@ export function GameCanvas(): JSX.Element {
 
       // Between ticks nothing moves, so freeze the heads on their vertex.
       const interpolationAlpha =
-        gameState === 'playing'
+        gameState === 'playing' && !isPaused
           ? Math.min(1, accumulatedMilliseconds.current / logicStepMilliseconds)
           : 1;
 
@@ -544,93 +617,124 @@ export function GameCanvas(): JSX.Element {
       window.removeEventListener('resize', onResize);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, level, isMobile, renderMode]);
+  }, [gameState, isPaused, level, isMobile, matchMode, renderMode, rendererGeneration]);
 
   // Inputs
   useEffect(() => {
+    const controls: KeyboardControls[] = [
+      {
+        playerRef: playerOneRef as RefObject<PlayerForInput>,
+        scheme: matchMode === 'versus' ? 'arrows' : 'both',
+        steeringMode,
+      },
+    ];
+
+    if (matchMode === 'versus') {
+      controls.push({
+        playerRef: playerTwoRef as RefObject<PlayerForInput>,
+        scheme: 'wasd',
+        steeringMode: 'absolute',
+      });
+    }
+
     function keydownHandler(event: KeyboardEvent): void {
       if (
         gameState === 'menu' &&
         (event.key === 'Enter' || event.key === ' ')
       ) {
-        startRunInMode(renderMode);
+        startRun('solo', renderMode);
         return;
       }
+
       // Game keys only apply mid-round; otherwise typing in overlay inputs
       // (e.g. the letter "r" in a player name) would reset the board.
       if (gameState !== 'playing') return;
-      handleKeyDownBase(
-        event,
-        playerOneRef as RefObject<PlayerForInput>,
-        handleManualReset,
-        steeringMode
+
+      const before = controls.map((control) => control.playerRef.current.pendingDirection);
+      handleKeyDownBase(event, controls, handleManualReset, togglePause);
+      const turned = controls.some(
+        (control, index) => control.playerRef.current.pendingDirection !== before[index]
       );
+
+      if (turned && !isPaused) sound.turn();
     }
+
     window.addEventListener('keydown', keydownHandler);
     return () => window.removeEventListener('keydown', keydownHandler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, renderMode, startRunInMode]);
+  }, [gameState, isPaused, matchMode, renderMode, steeringMode, startRun, sound]);
 
-  // RoundEnd actions
   /**
    * Handles the transition from "roundEnd" to the next state.
-   * - If player won → next level (or finalize run if last level)
-   * - If player lost → lose a life (or finalize run if no lives left)
+   * - Won → next level (or finalize the run if that was the last one)
+   * - Lost or drew → a life goes (or the run ends if that was the last one)
    */
   function handleRoundEndPrimary(): void {
-    const playerWonRound = overlayMessage?.startsWith('You win') ?? false;
+    if (matchMode === 'versus') {
+      setGameState('playing');
+      resetRound();
+      return;
+    }
 
-    if (playerWonRound) {
-      // Last level completed → finalize run
+    if (roundOutcome === 'win') {
       const isLastLevel = level >= LEVEL_COUNT;
       if (isLastLevel) {
         finalizeRunAndSave('victory');
         return;
       }
 
-      // Advance to next level
-      const nextLevelValue = Math.min(level + 1, LEVEL_COUNT);
-      setLevel(nextLevelValue);
+      setLevel((currentLevel) => Math.min(currentLevel + 1, LEVEL_COUNT));
       setGameState('playing');
       resetRound();
       return;
     }
 
-    // Player lost → remove a life
     const remainingLives = lives - 1;
     if (remainingLives <= 0) {
-      // No lives left → end run
       setLives(0);
       finalizeRunAndSave('outOfLives');
       return;
     }
 
-    // Still has lives → retry current level
     setLives(remainingLives);
     setGameState('playing');
     resetRound();
   }
 
-  function handleGameOverPrimary(): void {
-    startNewRun();
-  }
-
   /** Back to the menu with a clean arena, so the view can be switched. */
   function handleBackToMenu(): void {
     setGameState('menu');
+    setIsPaused(false);
     resetRound();
   }
 
   function handleTouchDirection(
     direction: 'up' | 'down' | 'left' | 'right'
   ): void {
-    if (gameState !== 'playing') return;
+    if (gameState !== 'playing' || isPaused) return;
 
+    const before = playerOneRef.current.pendingDirection;
     playerOneRef.current.pendingDirection = resolveSteering(
       direction,
       playerOneRef.current.direction,
       steeringMode
     );
+
+    if (playerOneRef.current.pendingDirection !== before) sound.turn();
+  }
+
+  function toggleSound(): void {
+    setSoundEnabled((enabled) => {
+      const next = !enabled;
+      saveSoundEnabled(next);
+      return next;
+    });
+  }
+
+  function toggleGlow(): void {
+    const next = !glowEnabled;
+    setGlowPreference(next);
+    saveGlowPreference(next);
   }
 
   // HUD
@@ -646,23 +750,57 @@ export function GameCanvas(): JSX.Element {
     <div className='game-ui'>
       <h1 className='game-title'>Lightcycle Arena</h1>
 
-      <div className='hud-container'>
-        <div className='hud-row'>
-          <span className='hud-lives'>Lives: {hearts || '—'}</span>
-          <span className='hud-highscore-label'>High Score</span>
+      {matchMode === 'versus' ? (
+        <div className='hud-container'>
+          <div className='hud-row'>
+            <span className='hud-score' style={{ color: PLAYER_ONE_COLOR }}>
+              {PLAYER_ONE_NAME}: {roundWins[0]}
+            </span>
+            <span className='hud-highscore-label'>Rounds</span>
+            <span className='hud-score' style={{ color: PLAYER_TWO_COLOR }}>
+              {PLAYER_TWO_NAME}: {roundWins[1]}
+            </span>
+          </div>
+          <div className='hud-row' style={{ opacity: 0.9 }}>
+            <span>P1: Arrows</span>
+            <span>View: {shortViewLabel}</span>
+            <span>P2: WASD</span>
+          </div>
         </div>
-        <div className='hud-row'>
-          <span className='hud-score'>Score: {formattedScore}</span>
-          <span className='hud-highscore-value'>{formattedHighScore}</span>
+      ) : (
+        <div className='hud-container'>
+          <div className='hud-row'>
+            <span className='hud-lives'>Lives: {hearts || '—'}</span>
+            <span className='hud-highscore-label'>High Score</span>
+          </div>
+          <div className='hud-row'>
+            <span className='hud-score'>Score: {formattedScore}</span>
+            <span className='hud-highscore-value'>{formattedHighScore}</span>
+          </div>
+          <div className='hud-row' style={{ opacity: 0.9 }}>
+            <span>
+              Level: {level}/{LEVEL_COUNT}
+            </span>
+            <span>View: {shortViewLabel}</span>
+            <span>Mode: {currentDifficulty()}</span>
+          </div>
         </div>
-        <div className='hud-row' style={{ opacity: 0.9 }}>
-          <span>
-            Level: {level}/{LEVEL_COUNT}
-          </span>
-          <span>View: {shortViewLabel}</span>
-          <span>Mode: {currentDifficulty()}</span>
-        </div>
-      </div>
+      )}
+    </div>
+  );
+
+  const preferenceToggles = (
+    <div className='overlay-toggles'>
+      <button
+        type='button'
+        onClick={toggleSound}
+        aria-pressed={soundEnabled}
+      >
+        Sound: {soundEnabled ? 'On' : 'Off'}
+      </button>
+      <button type='button' onClick={toggleGlow} aria-pressed={glowEnabled}>
+        Glow: {glowEnabled ? 'On' : 'Off'}
+      </button>
     </div>
   );
 
@@ -673,45 +811,91 @@ export function GameCanvas(): JSX.Element {
   function getOverlayConfig(): {
     title: string;
     paragraph?: string;
-    primaryLabel?: string;
-    onPrimary?: () => void;
-    secondaryLabel?: string;
-    onSecondary?: () => void;
+    actions: OverlayAction[];
     showLeaderboard: boolean;
     extraContent?: ReactNode;
     styleOverride?: CSSProperties;
   } {
-    const isWinMessage = overlayMessage?.startsWith('You win') ?? false;
+    if (isPaused && gameState === 'playing') {
+      return {
+        title: 'Paused',
+        paragraph: 'The arena waits.',
+        actions: [
+          { label: 'Resume', onSelect: () => setIsPaused(false) },
+          { label: 'Menu', variant: 'secondary', onSelect: handleBackToMenu },
+        ],
+        showLeaderboard: false,
+      };
+    }
 
     if (gameState === 'menu') {
+      const actions: OverlayAction[] = [
+        { label: '2D Classic', onSelect: () => startRun('solo', '2d') },
+        {
+          label: '3D Cockpit',
+          onSelect: () => startRun('solo', '3d'),
+          onPrefetch: () => void loadThreeRenderer(),
+        },
+      ];
+
+      // Two people need two halves of a keyboard, which a phone hasn't got.
+      if (!isMobile) {
+        actions.push({
+          label: '2 Players',
+          variant: 'secondary',
+          onSelect: () => startRun('versus', '2d'),
+        });
+      }
+
       return {
         title: 'Lightcycle Arena',
         paragraph:
-          '2D Classic: arrows steer by compass · 3D Cockpit: left/right turn the bike · R resets',
-        primaryLabel: '2D Classic',
-        onPrimary: () => startRunInMode('2d'),
-        secondaryLabel: '3D Cockpit',
-        onSecondary: () => startRunInMode('3d'),
+          '2D Classic: arrows steer by compass · 3D Cockpit: left/right turn the bike · R resets · P pauses',
+        actions,
         showLeaderboard: true,
         extraContent: (
-          <p className='menu-hint'>
-            Enter starts in the last view used ({viewLabel})
-          </p>
+          <>
+            {preferenceToggles}
+            <p className='menu-hint'>
+              Enter starts a solo run in the last view used ({viewLabel})
+            </p>
+          </>
         ),
         styleOverride: { background: 'rgba(0,0,0,0.65)' },
       };
     }
 
     if (gameState === 'roundEnd') {
+      const wonRound = roundOutcome === 'win';
+      const title =
+        matchMode === 'versus'
+          ? roundOutcome === 'draw'
+            ? 'Draw'
+            : `${wonRound ? PLAYER_ONE_NAME : PLAYER_TWO_NAME} takes the round`
+          : roundOutcome === 'draw'
+            ? 'Both riders down'
+            : wonRound
+              ? 'You win! Level cleared.'
+              : 'Bot wins! You crashed.';
+
+      const actions: OverlayAction[] = [
+        {
+          label:
+            matchMode === 'versus'
+              ? 'Next round'
+              : wonRound
+                ? 'Next Level'
+                : 'Retry',
+          onSelect: handleRoundEndPrimary,
+        },
+        { label: 'Menu', variant: 'secondary', onSelect: handleBackToMenu },
+      ];
+
       return {
-        title: overlayMessage || (isWinMessage ? 'You win!' : 'Round Over'),
-        paragraph: isWinMessage
-          ? 'Press Next to continue'
-          : 'Press Retry to continue',
-        primaryLabel: isWinMessage ? 'Next Level' : 'Retry',
-        onPrimary: handleRoundEndPrimary,
-        showLeaderboard: true,
-        // no extraContent here
+        title,
+        paragraph: roundMessage ?? undefined,
+        actions,
+        showLeaderboard: matchMode === 'solo',
       };
     }
 
@@ -720,16 +904,15 @@ export function GameCanvas(): JSX.Element {
 
       return {
         title,
-        paragraph: undefined,
-        primaryLabel: 'Play Again',
-        onPrimary: handleGameOverPrimary,
-        secondaryLabel: 'Menu',
-        onSecondary: handleBackToMenu,
+        actions: [
+          { label: 'Play Again', onSelect: startNewRun },
+          { label: 'Menu', variant: 'secondary', onSelect: handleBackToMenu },
+        ],
         showLeaderboard: true,
         extraContent: (
           <>
             <p style={{ marginTop: 6 }}>Your final score: {formattedScore}</p>
-            {needsNameForSave && (
+            {needsNameForSave ? (
               <div className='save-score-form'>
                 <input
                   type='text'
@@ -750,6 +933,22 @@ export function GameCanvas(): JSX.Element {
                   Save score
                 </button>
               </div>
+            ) : (
+              playerName && (
+                <p className='menu-hint'>
+                  Saved as {playerName} ·{' '}
+                  <button
+                    type='button'
+                    className='link-button'
+                    onClick={() => {
+                      setNameDraft(playerName);
+                      setNeedsNameForSave(true);
+                    }}
+                  >
+                    change name
+                  </button>
+                </p>
+              )
             )}
           </>
         ),
@@ -757,23 +956,18 @@ export function GameCanvas(): JSX.Element {
     }
 
     // Fallback
-    return {
-      title: '',
-      showLeaderboard: false,
-    };
+    return { title: '', actions: [], showLeaderboard: false };
   }
 
   // Same as the HUD: computed JSX instead of a nested component, so overlay
   // children (like the save-score input) keep focus across re-renders.
-  const overlayConfig = gameState !== 'playing' ? getOverlayConfig() : null;
+  const overlayVisible = gameState !== 'playing' || isPaused;
+  const overlayConfig = overlayVisible ? getOverlayConfig() : null;
   const stateOverlay = overlayConfig ? (
     <GameOverlay
       title={overlayConfig.title}
       paragraph={overlayConfig.paragraph}
-      primaryLabel={overlayConfig.primaryLabel}
-      onPrimary={overlayConfig.onPrimary}
-      secondaryLabel={overlayConfig.secondaryLabel}
-      onSecondary={overlayConfig.onSecondary}
+      actions={overlayConfig.actions}
       showLeaderboard={overlayConfig.showLeaderboard}
       leaderboardEntries={leaderboard}
       maxRows={5}
@@ -784,14 +978,11 @@ export function GameCanvas(): JSX.Element {
 
   // The canvas is keyed by view: a canvas that already handed out a 2D context
   // can never give a WebGL one, so switching views needs a brand new element.
+  // The generation counter does the same after a lost WebGL context.
   const arena = (
-    <div
-      className={
-        renderMode === '3d' ? 'canvas-zone canvas-zone-3d' : 'canvas-zone'
-      }
-    >
+    <div className='canvas-zone'>
       <canvas
-        key={renderMode}
+        key={`${renderMode}-${rendererGeneration}`}
         ref={canvasReference}
         className={renderMode === '3d' ? 'arena-canvas-3d' : undefined}
       />

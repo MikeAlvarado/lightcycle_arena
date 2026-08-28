@@ -7,14 +7,17 @@ A retro-inspired **Tron-style lightcycle** game built with **React + TypeScript*
 
 ## 🎮 How to Play
 
-- Pick a view from the menu: **2D Classic** (the whole board at once) or **3D Cockpit** (a chase camera behind your bike, with a minimap in the corner). Same game, same rules.
+- Pick how to play from the menu: **2D Classic** (the whole board at once), **3D Cockpit** (a chase camera behind your bike, with a minimap in the corner) or **2 Players** (two riders sharing one keyboard — arrows against WASD). Same arena, same rules.
+- In the cockpit view left and right **turn the bike**; on the flat board they are compass headings.
+- **P** pauses, **R** restarts the round at the cost of a life, and the game pauses itself if you switch tabs.
 - Use the **arrow keys** (or the on-screen D-Pad on mobile) to move your lightcycle.
 - Avoid hitting walls or trails — both yours and your opponent’s.
 - Survive as long as possible to gain points.
 - Win a round to advance to the next level.
 - Lose all lives and your run ends — you’ll be prompted to save your score locally.
 
-Each level increases AI difficulty and point multipliers.
+Each level raises the AI's difficulty, the arena's speed and the point multiplier.
+Meeting another rider head-on takes you both down.
 
 ---
 

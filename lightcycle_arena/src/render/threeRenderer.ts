@@ -4,6 +4,7 @@ import {
   BoxGeometry,
   BufferGeometry,
   Color,
+  ConeGeometry,
   CylinderGeometry,
   Float32BufferAttribute,
   Fog,
@@ -30,13 +31,17 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 
 import type { GridConfig } from "../utils/gridConfig";
-import type { Direction, LatticeMatrix } from "../utils/latticeHelpers";
+import type { LatticeMatrix } from "../utils/latticeHelpers";
 import type { GameRenderer, PlayerRenderView, RenderFrame } from "./types";
+import type { TrailRunState } from "./trailGeometry";
 import {
-  DIRECTION_VECTORS,
+  clipTipBehindBike,
+  decideTrailAction,
+  spanBetween,
+} from "./trailGeometry";
+import {
   WORLD_CELL_SIZE,
   directionToYaw,
-  isHorizontal,
   latticeToWorldX,
   latticeToWorldZ,
   lerp,
@@ -50,10 +55,9 @@ const TRAIL_HEIGHT = 1.35;
 const TRAIL_THICKNESS = 0.26;
 const TRAIL_RIM_HEIGHT = 0.13;
 const TRAIL_RIM_THICKNESS = 0.34;
-const MINIMUM_TRAIL_LENGTH = 0.001;
 /**
- * The wall is emitted a bit behind the rear wheel. Without this gap the bike
- * sits inside its own glow and the chase camera can't read its silhouette.
+ * The wall is laid a bit behind the rear wheel. Without this gap the bike sits
+ * inside its own glow and the chase camera can't read its silhouette.
  */
 const TRAIL_TIP_GAP = 0.95;
 
@@ -76,23 +80,28 @@ const CAMERA_LOOK_HEIGHT = 1;
 const CAMERA_FOLLOW_RESPONSIVENESS = 11;
 const BIKE_TURN_RESPONSIVENESS = 16;
 
+const DEBRIS_PER_CRASH = 18;
+const DEBRIS_GRAVITY = 11;
+const CAMERA_SHAKE_ON_CRASH = 0.55;
+const CAMERA_SHAKE_DECAY = 3.4;
+
 export interface ThreeRendererOptions {
-  /** Bloom is the expensive part; callers turn it off on phones. */
+  /** Bloom is the expensive part; low-end devices turn it off. */
   enableBloom?: boolean;
+  /**
+   * Called when the browser takes the WebGL context away (GPU reset, a phone
+   * reclaiming memory) and when it hands it back. The app rebuilds the renderer
+   * on restore, since a dropped context takes every buffer with it.
+   */
+  onContextLost?: () => void;
+  onContextRestored?: () => void;
 }
 
-/** A wall is a translucent panel capped by a bright rim, drawn as two boxes. */
-interface TrailSegment {
-  panel: Mesh;
-  rim: Mesh;
-}
-
-/** One straight stretch of light wall, still growing behind its bike. */
-interface TrailRun {
-  segment: TrailSegment;
-  startX: number;
-  startZ: number;
-  direction: Direction;
+/** A piece of a wrecked bike, thrown out on impact. */
+interface DebrisPiece {
+  mesh: Mesh;
+  velocity: Vector3;
+  remainingLife: number;
 }
 
 interface PlayerVisual {
@@ -100,9 +109,10 @@ interface PlayerVisual {
   panelMaterial: MeshStandardMaterial;
   rimMaterial: MeshStandardMaterial;
   trailMeshes: Mesh[];
-  activeRun: TrailRun | null;
+  activeRun: (TrailRunState & { panel: Mesh; rim: Mesh }) | null;
   /** Set when the wall meshes no longer match the lattice and must be redone. */
   needsTrailRebuild: boolean;
+  wasAlive: boolean;
 }
 
 /**
@@ -130,6 +140,22 @@ export function createThreeRenderer(
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = NeutralToneMapping;
   renderer.toneMappingExposure = 1;
+
+  let contextLost = false;
+
+  function handleContextLost(event: Event): void {
+    // Without preventDefault the browser never bothers to restore it.
+    event.preventDefault();
+    contextLost = true;
+    options.onContextLost?.();
+  }
+  function handleContextRestored(): void {
+    contextLost = false;
+    options.onContextRestored?.();
+  }
+
+  canvas.addEventListener("webglcontextlost", handleContextLost);
+  canvas.addEventListener("webglcontextrestored", handleContextRestored);
 
   const scene = new Scene();
   scene.background = new Color(BACKGROUND_COLOR);
@@ -162,7 +188,10 @@ export function createThreeRenderer(
   buildArenaWalls();
 
   const playerVisuals: PlayerVisual[] = [];
+  const debris: DebrisPiece[] = [];
+  const cameraAnchor = new Vector3(0, CAMERA_HEIGHT, arenaDepth / 2);
   const cameraLookTarget = new Vector3(0, CAMERA_LOOK_HEIGHT, 0);
+  let cameraShake = 0;
   let shouldSnapCamera = true;
   let lastFrameTimestamp = 0;
 
@@ -267,11 +296,19 @@ export function createThreeRenderer(
     return effectComposer;
   }
 
+  /**
+   * A lightcycle built out of primitives: long tapered hull, canopy over the
+   * rider, hub-less wheels lit from the inside. Swapping this for a loaded GLTF
+   * later only touches this function.
+   */
   function buildBike(color: Color): Group {
     const bike = new Group();
 
     const chassisMaterial = trackMaterial(
       new MeshStandardMaterial({ color: 0x1c2334, roughness: 0.35, metalness: 0.7 })
+    );
+    const darkMaterial = trackMaterial(
+      new MeshStandardMaterial({ color: 0x0a0d16, roughness: 0.5, metalness: 0.6 })
     );
     const glowMaterial = trackMaterial(
       new MeshStandardMaterial({
@@ -282,28 +319,48 @@ export function createThreeRenderer(
       })
     );
 
-    const chassis = new Mesh(unitBoxGeometry, chassisMaterial);
-    chassis.scale.set(0.55, 0.36, 1.85);
-    chassis.position.y = 0.46;
-    bike.add(chassis);
+    const hull = new Mesh(unitBoxGeometry, chassisMaterial);
+    hull.scale.set(0.5, 0.3, 1.9);
+    hull.position.y = 0.46;
+    bike.add(hull);
 
-    // Full-length light strip along the spine, the part that reads at distance.
-    const lightStrip = new Mesh(unitBoxGeometry, glowMaterial);
-    lightStrip.scale.set(0.26, 0.12, 1.5);
-    lightStrip.position.y = 0.67;
-    bike.add(lightStrip);
+    // Nose cone, so the bike reads as pointing somewhere from behind.
+    const nose = new Mesh(trackGeometry(new ConeGeometry(0.26, 0.7, 4)), chassisMaterial);
+    nose.rotation.x = -Math.PI / 2;
+    nose.rotation.y = Math.PI / 4;
+    nose.position.set(0, 0.46, -1.2);
+    bike.add(nose);
 
-    // Rider: a small block that breaks the silhouette against the floor.
-    const rider = new Mesh(unitBoxGeometry, chassisMaterial);
-    rider.scale.set(0.34, 0.5, 0.5);
-    rider.position.set(0, 0.88, 0.12);
+    // Light spine, the part that carries at distance.
+    const spine = new Mesh(unitBoxGeometry, glowMaterial);
+    spine.scale.set(0.22, 0.12, 1.55);
+    spine.position.y = 0.65;
+    bike.add(spine);
+
+    // Fairings flaring out over each wheel.
+    for (const side of [-1, 1]) {
+      const fairing = new Mesh(unitBoxGeometry, darkMaterial);
+      fairing.scale.set(0.12, 0.2, 1.1);
+      fairing.position.set(side * 0.3, 0.5, 0);
+      fairing.rotation.z = side * 0.25;
+      bike.add(fairing);
+    }
+
+    const rider = new Mesh(unitBoxGeometry, darkMaterial);
+    rider.scale.set(0.32, 0.46, 0.46);
+    rider.position.set(0, 0.86, 0.16);
     bike.add(rider);
 
-    const wheelGeometry = trackGeometry(new CylinderGeometry(0.36, 0.36, 0.18, 16));
-    const rimGeometry = trackGeometry(new TorusGeometry(0.36, 0.055, 8, 20));
+    const canopy = new Mesh(unitBoxGeometry, glowMaterial);
+    canopy.scale.set(0.24, 0.08, 0.5);
+    canopy.position.set(0, 1.09, 0.16);
+    bike.add(canopy);
 
-    for (const wheelZ of [-0.66, 0.66]) {
-      const wheel = new Mesh(wheelGeometry, chassisMaterial);
+    const wheelGeometry = trackGeometry(new CylinderGeometry(0.36, 0.36, 0.16, 18));
+    const rimGeometry = trackGeometry(new TorusGeometry(0.36, 0.05, 8, 22));
+
+    for (const wheelZ of [-0.68, 0.68]) {
+      const wheel = new Mesh(wheelGeometry, darkMaterial);
       wheel.rotation.z = Math.PI / 2; // lay the cylinder on its side (axis along X)
       wheel.position.set(0, 0.36, wheelZ);
       bike.add(wheel);
@@ -351,9 +408,10 @@ export function createThreeRenderer(
         ),
         trailMeshes: [],
         activeRun: null,
-        // A renderer can be created mid-round (mode switch, device rotation),
-        // so the first frame reconstructs whatever the lattice already holds.
+        // A renderer can be created mid-round (view switch, a restored WebGL
+        // context), so the first frame reconstructs what the lattice holds.
         needsTrailRebuild: true,
+        wasAlive: true,
       });
     }
   }
@@ -364,7 +422,33 @@ export function createThreeRenderer(
     visual.activeRun = null;
   }
 
-  function createTrailSegment(visual: PlayerVisual): TrailSegment {
+  function applySpan(
+    panel: Mesh,
+    rim: Mesh,
+    startX: number,
+    startZ: number,
+    endX: number,
+    endZ: number,
+    direction: TrailRunState["direction"]
+  ): void {
+    const span = spanBetween(startX, startZ, endX, endZ, direction);
+
+    panel.position.set(span.centerX, TRAIL_HEIGHT / 2, span.centerZ);
+    panel.scale.set(
+      span.horizontal ? span.length : TRAIL_THICKNESS,
+      TRAIL_HEIGHT,
+      span.horizontal ? TRAIL_THICKNESS : span.length
+    );
+
+    rim.position.set(span.centerX, TRAIL_HEIGHT, span.centerZ);
+    rim.scale.set(
+      span.horizontal ? span.length : TRAIL_RIM_THICKNESS,
+      TRAIL_RIM_HEIGHT,
+      span.horizontal ? TRAIL_RIM_THICKNESS : span.length
+    );
+  }
+
+  function createSegmentMeshes(visual: PlayerVisual): { panel: Mesh; rim: Mesh } {
     const panel = new Mesh(unitBoxGeometry, visual.panelMaterial);
     const rim = new Mesh(unitBoxGeometry, visual.rimMaterial);
     scene.add(panel);
@@ -373,78 +457,30 @@ export function createThreeRenderer(
     return { panel, rim };
   }
 
-  function spanSegment(
-    segment: TrailSegment,
-    startX: number,
-    startZ: number,
-    endX: number,
-    endZ: number,
-    horizontal: boolean
-  ): void {
-    const length = Math.max(
-      MINIMUM_TRAIL_LENGTH,
-      horizontal ? Math.abs(endX - startX) : Math.abs(endZ - startZ)
-    );
-    const centerX = horizontal ? (startX + endX) / 2 : startX;
-    const centerZ = horizontal ? startZ : (startZ + endZ) / 2;
-
-    segment.panel.position.set(centerX, TRAIL_HEIGHT / 2, centerZ);
-    segment.panel.scale.set(
-      horizontal ? length : TRAIL_THICKNESS,
-      TRAIL_HEIGHT,
-      horizontal ? TRAIL_THICKNESS : length
-    );
-
-    segment.rim.position.set(centerX, TRAIL_HEIGHT, centerZ);
-    segment.rim.scale.set(
-      horizontal ? length : TRAIL_RIM_THICKNESS,
-      TRAIL_RIM_HEIGHT,
-      horizontal ? TRAIL_RIM_THICKNESS : length
-    );
-  }
-
   function startRun(
     visual: PlayerVisual,
     startX: number,
     startZ: number,
-    direction: Direction
-  ): TrailRun {
-    const run: TrailRun = {
-      segment: createTrailSegment(visual),
-      startX,
-      startZ,
-      direction,
-    };
-    spanSegment(run.segment, startX, startZ, startX, startZ, isHorizontal(direction));
+    direction: TrailRunState["direction"]
+  ): NonNullable<PlayerVisual["activeRun"]> {
+    const { panel, rim } = createSegmentMeshes(visual);
+    const run = { startX, startZ, direction, panel, rim };
+
+    applySpan(panel, rim, startX, startZ, startX, startZ, direction);
     visual.activeRun = run;
     return run;
   }
 
-  /** Grow the active run up to the bike, minus the gap behind its rear wheel. */
-  function spanRunToBike(run: TrailRun, tipX: number, tipZ: number): void {
-    const forward = DIRECTION_VECTORS[run.direction];
-    const travelled = (tipX - run.startX) * forward.x + (tipZ - run.startZ) * forward.z;
-    const drawn = Math.max(0, travelled - TRAIL_TIP_GAP);
-
-    spanSegment(
-      run.segment,
-      run.startX,
-      run.startZ,
-      run.startX + forward.x * drawn,
-      run.startZ + forward.z * drawn,
-      isHorizontal(run.direction)
-    );
-  }
-
-  function addStaticTrailSegment(
+  function addStaticSegment(
     visual: PlayerVisual,
     startX: number,
     startZ: number,
     endX: number,
     endZ: number,
-    horizontal: boolean
+    direction: TrailRunState["direction"]
   ): void {
-    spanSegment(createTrailSegment(visual), startX, startZ, endX, endZ, horizontal);
+    const { panel, rim } = createSegmentMeshes(visual);
+    applySpan(panel, rim, startX, startZ, endX, endZ, direction);
   }
 
   /**
@@ -467,21 +503,21 @@ export function createThreeRenderer(
         if (trail[row][column]) {
           if (runStartColumn < 0) runStartColumn = column - 1;
         } else if (runStartColumn >= 0) {
-          addStaticTrailSegment(
+          addStaticSegment(
             visual,
             latticeToWorldX(runStartColumn, grid), z,
             latticeToWorldX(column - 1, grid), z,
-            true
+            "right"
           );
           runStartColumn = -1;
         }
       }
       if (runStartColumn >= 0) {
-        addStaticTrailSegment(
+        addStaticSegment(
           visual,
           latticeToWorldX(runStartColumn, grid), z,
           latticeToWorldX(maxLatticeColumn, grid), z,
-          true
+          "right"
         );
       }
     }
@@ -495,34 +531,26 @@ export function createThreeRenderer(
         if (trail[row][column]) {
           if (runStartRow < 0) runStartRow = row - 1;
         } else if (runStartRow >= 0) {
-          addStaticTrailSegment(
+          addStaticSegment(
             visual,
             x, latticeToWorldZ(runStartRow, grid),
             x, latticeToWorldZ(row - 1, grid),
-            false
+            "down"
           );
           runStartRow = -1;
         }
       }
       if (runStartRow >= 0) {
-        addStaticTrailSegment(
+        addStaticSegment(
           visual,
           x, latticeToWorldZ(runStartRow, grid),
           x, latticeToWorldZ(maxLatticeRow, grid),
-          false
+          "down"
         );
       }
     }
 
     visual.needsTrailRebuild = false;
-  }
-
-  /** True when the turn corner is no longer on the active run's axis. */
-  function isOffRunAxis(run: TrailRun, cornerX: number, cornerZ: number): boolean {
-    const epsilon = 1e-6;
-    return isHorizontal(run.direction)
-      ? Math.abs(cornerZ - run.startZ) > epsilon
-      : Math.abs(cornerX - run.startX) > epsilon;
   }
 
   /**
@@ -540,29 +568,82 @@ export function createThreeRenderer(
   ): void {
     if (visual.needsTrailRebuild) rebuildTrailFromLattice(visual, player.trail);
 
+    const action = decideTrailAction(visual.activeRun, cornerX, cornerZ, player.direction);
     let run = visual.activeRun;
 
-    if (!run || run.direction !== player.direction) {
+    if (action === "turn" && run) {
       // Close the previous stretch exactly on the corner, then turn.
-      if (run) {
-        spanSegment(
-          run.segment,
-          run.startX,
-          run.startZ,
-          cornerX,
-          cornerZ,
-          isHorizontal(run.direction)
-        );
-      }
-      run = startRun(visual, cornerX, cornerZ, player.direction);
-    } else if (isOffRunAxis(run, cornerX, cornerZ)) {
+      applySpan(run.panel, run.rim, run.startX, run.startZ, cornerX, cornerZ, run.direction);
+      run = null;
+    } else if (action === "rebuild") {
       // A stall swallowed one or more ticks and we missed a corner: the lattice
       // is the source of truth, so redraw the whole trail from it.
       rebuildTrailFromLattice(visual, player.trail);
-      run = startRun(visual, cornerX, cornerZ, player.direction);
+      run = null;
     }
 
-    spanRunToBike(run, tipX, tipZ);
+    if (!run) run = startRun(visual, cornerX, cornerZ, player.direction);
+
+    const tip = clipTipBehindBike(run, tipX, tipZ, TRAIL_TIP_GAP);
+    applySpan(run.panel, run.rim, run.startX, run.startZ, tip.x, tip.z, run.direction);
+  }
+
+  function spawnCrashDebris(visual: PlayerVisual, x: number, z: number): void {
+    for (let piece = 0; piece < DEBRIS_PER_CRASH; piece += 1) {
+      const mesh = new Mesh(unitBoxGeometry, visual.rimMaterial);
+      const size = 0.1 + Math.random() * 0.16;
+
+      mesh.scale.setScalar(size);
+      mesh.position.set(x, 0.5 + Math.random() * 0.4, z);
+      mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+      scene.add(mesh);
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2.5 + Math.random() * 5;
+      debris.push({
+        mesh,
+        velocity: new Vector3(
+          Math.cos(angle) * speed,
+          3 + Math.random() * 5,
+          Math.sin(angle) * speed
+        ),
+        remainingLife: 0.9 + Math.random() * 0.6,
+      });
+    }
+
+    // A crash you feel: nearer wrecks shake the camera harder.
+    const distance = camera.position.distanceTo(new Vector3(x, 0.5, z));
+    cameraShake = Math.max(cameraShake, CAMERA_SHAKE_ON_CRASH / (1 + distance / 12));
+  }
+
+  function updateDebris(deltaSeconds: number): void {
+    for (let index = debris.length - 1; index >= 0; index -= 1) {
+      const piece = debris[index];
+
+      piece.remainingLife -= deltaSeconds;
+      if (piece.remainingLife <= 0) {
+        scene.remove(piece.mesh);
+        debris.splice(index, 1);
+        continue;
+      }
+
+      piece.velocity.y -= DEBRIS_GRAVITY * deltaSeconds;
+      piece.mesh.position.addScaledVector(piece.velocity, deltaSeconds);
+      piece.mesh.rotation.x += deltaSeconds * 6;
+      piece.mesh.rotation.y += deltaSeconds * 4;
+
+      if (piece.mesh.position.y < 0.06) {
+        // Bounce, losing most of the energy each time.
+        piece.mesh.position.y = 0.06;
+        piece.velocity.y = Math.abs(piece.velocity.y) * 0.35;
+        piece.velocity.multiplyScalar(0.6);
+      }
+    }
+  }
+
+  function clearDebris(): void {
+    for (const piece of debris) scene.remove(piece.mesh);
+    debris.length = 0;
   }
 
   function updateCamera(leadBike: Group, deltaSeconds: number): void {
@@ -576,16 +657,29 @@ export function createThreeRenderer(
     const targetLookZ = leadBike.position.z + forwardZ * CAMERA_LOOK_AHEAD;
 
     if (shouldSnapCamera) {
-      camera.position.set(desiredX, CAMERA_HEIGHT, desiredZ);
+      cameraAnchor.set(desiredX, CAMERA_HEIGHT, desiredZ);
       cameraLookTarget.set(targetLookX, CAMERA_LOOK_HEIGHT, targetLookZ);
       shouldSnapCamera = false;
     } else {
       const factor = smoothingFactor(CAMERA_FOLLOW_RESPONSIVENESS, deltaSeconds);
-      camera.position.x = lerp(camera.position.x, desiredX, factor);
-      camera.position.y = lerp(camera.position.y, CAMERA_HEIGHT, factor);
-      camera.position.z = lerp(camera.position.z, desiredZ, factor);
+      cameraAnchor.x = lerp(cameraAnchor.x, desiredX, factor);
+      cameraAnchor.y = lerp(cameraAnchor.y, CAMERA_HEIGHT, factor);
+      cameraAnchor.z = lerp(cameraAnchor.z, desiredZ, factor);
       cameraLookTarget.x = lerp(cameraLookTarget.x, targetLookX, factor);
       cameraLookTarget.z = lerp(cameraLookTarget.z, targetLookZ, factor);
+    }
+
+    // Shake is applied on top of the smoothed anchor, never fed back into it,
+    // so the camera doesn't wander off while it rattles.
+    cameraShake = Math.max(0, cameraShake - CAMERA_SHAKE_DECAY * deltaSeconds * cameraShake);
+    if (cameraShake > 0.001) {
+      camera.position.set(
+        cameraAnchor.x + (Math.random() - 0.5) * cameraShake,
+        cameraAnchor.y + (Math.random() - 0.5) * cameraShake,
+        cameraAnchor.z + (Math.random() - 0.5) * cameraShake
+      );
+    } else {
+      camera.position.copy(cameraAnchor);
     }
 
     camera.lookAt(cameraLookTarget);
@@ -622,6 +716,9 @@ export function createThreeRenderer(
   }
 
   function draw(frame: RenderFrame): void {
+    // Drawing into a lost context throws on some drivers; wait for the restore.
+    if (contextLost) return;
+
     const now = performance.now();
     // Clamp so a background tab (or the first frame) doesn't teleport the camera.
     const deltaSeconds = lastFrameTimestamp
@@ -643,6 +740,10 @@ export function createThreeRenderer(
       const tipX = lerp(cornerX, headX, progress);
       const tipZ = lerp(cornerZ, headZ, progress);
 
+      if (visual.wasAlive && !player.isAlive) spawnCrashDebris(visual, tipX, tipZ);
+      visual.wasAlive = player.isAlive;
+      visual.bike.visible = player.isAlive;
+
       visual.bike.position.set(tipX, 0, tipZ);
       const yawDelta = shortestAngleDelta(visual.bike.rotation.y, directionToYaw(player.direction));
       visual.bike.rotation.y += yawDelta * smoothingFactor(BIKE_TURN_RESPONSIVENESS, deltaSeconds);
@@ -650,6 +751,7 @@ export function createThreeRenderer(
       updateTrail(visual, player, cornerX, cornerZ, tipX, tipZ);
     });
 
+    updateDebris(deltaSeconds);
     if (playerVisuals.length > 0) updateCamera(playerVisuals[0].bike, deltaSeconds);
 
     if (composer) composer.render(deltaSeconds);
@@ -660,14 +762,22 @@ export function createThreeRenderer(
     for (const visual of playerVisuals) {
       clearTrailMeshes(visual);
       visual.needsTrailRebuild = false;
+      visual.wasAlive = true;
+      visual.bike.visible = true;
     }
+    clearDebris();
+    cameraShake = 0;
     shouldSnapCamera = true;
     lastFrameTimestamp = 0;
   }
 
   function dispose(): void {
+    canvas.removeEventListener("webglcontextlost", handleContextLost);
+    canvas.removeEventListener("webglcontextrestored", handleContextRestored);
+
     for (const visual of playerVisuals) clearTrailMeshes(visual);
     playerVisuals.length = 0;
+    clearDebris();
 
     for (const geometry of ownedGeometries) geometry.dispose();
     for (const material of ownedMaterials) material.dispose();

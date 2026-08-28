@@ -5,6 +5,8 @@ const KEY_PLAYER_NAME = "lca.playerName";
 const KEY_HIGHSCORES = "lca.highScores";
 const KEY_HIGHSCORE_MAX = "lca.highScoreMax";
 const KEY_RENDER_MODE = "lca.renderMode";
+const KEY_SOUND = "lca.sound";
+const KEY_GLOW = "lca.glow";
 
 const SEED_HIGHSCORES: HighScoreEntry[] = [
   { name: "Flynn", score: 50000, dateISO: "1982-06-09T00:00:00.000Z" },
@@ -28,6 +30,32 @@ export function loadRenderMode(): RenderMode {
 }
 export function saveRenderMode(mode: RenderMode): void {
   try { localStorage.setItem(KEY_RENDER_MODE, mode); } catch { /* not fatal */ }
+}
+
+/** Sound is on unless the player turned it off. */
+export function loadSoundEnabled(): boolean {
+  try { return localStorage.getItem(KEY_SOUND) !== "off"; } catch { return true; }
+}
+export function saveSoundEnabled(enabled: boolean): void {
+  try { localStorage.setItem(KEY_SOUND, enabled ? "on" : "off"); } catch { /* not fatal */ }
+}
+
+/**
+ * Bloom in the 3D view, as an opinion rather than a value: null means "nobody
+ * said", and the caller decides what this device should do by default. Storing
+ * the resolved value instead would freeze a guess made before the window had
+ * even settled on its size.
+ */
+export function loadGlowPreference(): boolean | null {
+  try {
+    const stored = localStorage.getItem(KEY_GLOW);
+    if (stored === "on") return true;
+    if (stored === "off") return false;
+    return null;
+  } catch { return null; }
+}
+export function saveGlowPreference(enabled: boolean): void {
+  try { localStorage.setItem(KEY_GLOW, enabled ? "on" : "off"); } catch { /* not fatal */ }
 }
 
 /** Type guard so malformed/tampered localStorage entries can't reach rendering code. */
