@@ -23,8 +23,13 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-/* Two turns: they take the flanks and the wall sits between them. */
+/* Two turns share the width evenly... */
 .control-pad.is-turns {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* ...unless the jet wall is in play, in which case it sits between them. */
+.control-pad.is-turns.has-cut {
   grid-template-columns: 1fr auto 1fr;
 }
 

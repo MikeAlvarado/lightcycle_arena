@@ -56,6 +56,10 @@ body,
   width: 100%;
   margin: 0;
   padding: 0;
+  /* Safari will happily scroll a page that is a hair taller than its own
+     collapsing chrome, which pushes the HUD off the top and clips the pad. */
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
@@ -158,14 +162,29 @@ body::after {
 @media (pointer: coarse),
 (max-width: 768px) {
   .hud-zone {
-    padding: 8px 10px 10px;
+    padding: 6px 10px 7px;
   }
 
   .canvas-zone {
-    flex: 1 1 50%;
+    /* The game gets the lion's share; the controls take what is left. */
+    flex: 1 1 62%;
     min-height: 45vh;
     border-radius: 10px;
-    margin: 6px;
+    margin: 5px;
+  }
+
+  /*
+   * The flat board keeps the grid's shape, so on a phone it is as wide as the
+   * screen and no taller than that makes it. Sizing the zone to match hands the
+   * leftover height to the controls instead of leaving it black.
+   */
+  .canvas-zone.is-flat {
+    flex: 0 0 auto;
+    /* The generic minimum would win over the ratio and put the black back. */
+    min-height: 0;
+    /* The grid's own 40:30, with a little slack: the canvas fits itself to the
+       zone in whole pixels and a rounding of a few of them would clip it. */
+    aspect-ratio: 40 / 31.5;
   }
 
   /* Title screen: no HUD, no pad, so the arena zone is the whole screen. */
@@ -185,7 +204,7 @@ body::after {
   }
 
   .controls-zone {
-    flex: 1 1 46%;
+    flex: 1 1 38%;
     display: flex;
     /* Keep the pad clear of the iPhone home indicator */
     padding-bottom: env(safe-area-inset-bottom);

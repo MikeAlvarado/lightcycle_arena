@@ -380,7 +380,7 @@ export function GameCanvas(): JSX.Element {
   ) : null;
 
   const arena = (
-    <div className='canvas-zone'>
+    <div className={`canvas-zone${state.renderMode === '2d' ? ' is-flat' : ''}`}>
       <canvas
         key={game.canvasKey}
         ref={game.canvasRef}
