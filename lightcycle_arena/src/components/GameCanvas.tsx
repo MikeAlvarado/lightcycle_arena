@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import type { CSSProperties, JSX, ReactNode } from 'react';
+import type { JSX, ReactNode } from 'react';
 
 import { botForLevel } from '../config/riders';
-import { LEVEL_COUNT } from '../config/levels';
+import { INITIAL_LIVES, LEVEL_COUNT } from '../config/levels';
 import { useLightcycleGame } from '../game/useLightcycleGame';
 import { DPadOverlay } from './DPadOverlay';
 import { GameOverlay } from './GameOverlay';
@@ -24,7 +24,6 @@ export function GameCanvas(): JSX.Element {
   // Purely a text field: the game only hears about it when it is submitted.
   const [nameDraft, setNameDraft] = useState<string>('');
 
-  const hearts = '❤'.repeat(Math.max(0, state.lives));
   const formattedScore = state.score.toString().padStart(8, '0');
   const formattedHighScore = game.highScore.toString().padStart(8, '0');
   const viewLabel = state.renderMode === '3d' ? '3D Cockpit' : '2D Classic';
@@ -59,49 +58,86 @@ export function GameCanvas(): JSX.Element {
       </div>
     ) : null;
 
-  const hud = (
-    <div className='game-ui'>
-      <h1 className='game-title'>Lightcycle Arena</h1>
+  const livesPips = Array.from({ length: INITIAL_LIVES }, (_, index) => (
+    <span
+      key={index}
+      className={`hud-pip is-life${index < state.lives ? '' : ' is-spent'}`}
+    />
+  ));
 
+  const levelPips = Array.from({ length: LEVEL_COUNT }, (_, index) => (
+    <span
+      key={index}
+      className={`hud-pip${index < state.level ? '' : ' is-spent'}`}
+    />
+  ));
+
+  const hud = (
+    <header className='hud'>
       {state.matchMode === 'versus' ? (
-        <div className='hud-container'>
-          <div className='hud-row'>
-            <span className='hud-score' style={{ color: game.playerColor }}>
-              {game.playerLabel}: {state.roundWins[0]}
-            </span>
-            <span className='hud-highscore-label'>Rounds</span>
-            <span className='hud-score' style={{ color: opponent.color }}>
-              {opponent.name}: {state.roundWins[1]}
-            </span>
+        <>
+          <div className='hud-slot hud-slot-left'>
+            <div className='hud-field'>
+              <span className='hud-key'>Player one · arrows</span>
+              <span className='hud-tally' style={{ color: game.playerColor }}>
+                {game.playerLabel}: {state.roundWins[0]}
+              </span>
+            </div>
           </div>
-          <div className='hud-row' style={{ opacity: 0.9 }}>
-            <span>P1: Arrows</span>
-            <span>View: {shortViewLabel}</span>
-            <span>P2: WASD</span>
+
+          <div className='hud-slot hud-slot-center'>
+            <span className='hud-key'>Rounds</span>
           </div>
-          {wallMeter}
-        </div>
+
+          <div className='hud-slot hud-slot-right'>
+            <div className='hud-field'>
+              <span className='hud-key'>Player two · wasd</span>
+              <span className='hud-tally' style={{ color: opponent.color }}>
+                {opponent.name}: {state.roundWins[1]}
+              </span>
+            </div>
+          </div>
+        </>
       ) : (
-        <div className='hud-container'>
-          <div className='hud-row'>
-            <span className='hud-lives'>Lives: {hearts || '—'}</span>
-            <span className='hud-highscore-label'>High Score</span>
+        <>
+          <div className='hud-slot hud-slot-left'>
+            <div className='hud-field'>
+              <span className='hud-key'>Lives</span>
+              <span className='hud-pips' aria-label={`${state.lives} lives left`}>
+                {livesPips}
+              </span>
+            </div>
+            <div className='hud-field'>
+              <span className='hud-key'>
+                Level {state.level}/{LEVEL_COUNT}
+              </span>
+              <span className='hud-pips' aria-hidden='true'>
+                {levelPips}
+              </span>
+            </div>
           </div>
-          <div className='hud-row'>
-            <span className='hud-score'>Score: {formattedScore}</span>
-            <span className='hud-highscore-value'>{formattedHighScore}</span>
-          </div>
-          <div className='hud-row' style={{ opacity: 0.9 }}>
-            <span>
-              Level: {state.level}/{LEVEL_COUNT}
+
+          <div className='hud-slot hud-slot-center'>
+            <span className='hud-score-value' aria-label={`Score ${state.score}`}>
+              {formattedScore}
             </span>
-            <span>View: {shortViewLabel}</span>
-            <span style={{ color: opponent.color }}>vs {opponent.name}</span>
+            <span className='hud-best'>Best {formattedHighScore}</span>
           </div>
-          {wallMeter}
-        </div>
+
+          <div className='hud-slot hud-slot-right'>
+            <span className='hud-view'>{shortViewLabel}</span>
+            <div className='hud-field'>
+              <span className='hud-key'>Rival</span>
+              <span className='hud-rival' style={{ color: opponent.color }}>
+                {opponent.name}
+              </span>
+            </div>
+          </div>
+        </>
       )}
-    </div>
+
+      {wallMeter}
+    </header>
   );
 
   const preferenceToggles = (
@@ -140,11 +176,15 @@ export function GameCanvas(): JSX.Element {
    */
   function getOverlayConfig(): {
     title: string;
+    titleSlot?: ReactNode;
+    variant?: 'panel' | 'title';
     paragraph?: string;
     actions: OverlayAction[];
+    actionsLayout?: 'row' | 'menu';
     showLeaderboard: boolean;
+    maxRows?: number;
     extraContent?: ReactNode;
-    styleOverride?: CSSProperties;
+    footer?: ReactNode;
   } {
     if (state.isPaused && state.gameState === 'playing') {
       return {
@@ -160,9 +200,14 @@ export function GameCanvas(): JSX.Element {
 
     if (state.gameState === 'menu') {
       const menuActions: OverlayAction[] = [
-        { label: '2D Classic', onSelect: () => actions.startRun('solo', '2d') },
+        {
+          label: '2D Classic',
+          note: 'the whole board',
+          onSelect: () => actions.startRun('solo', '2d'),
+        },
         {
           label: '3D Cockpit',
+          note: 'from the saddle',
           onSelect: () => actions.startRun('solo', '3d'),
           onPrefetch: actions.prefetchCockpit,
         },
@@ -172,18 +217,33 @@ export function GameCanvas(): JSX.Element {
       if (!game.isMobile) {
         menuActions.push({
           label: '2 Players',
-          variant: 'secondary',
+          note: 'one keyboard',
           onSelect: () => actions.startRun('versus', '2d'),
         });
       }
 
       return {
         title: 'Lightcycle Arena',
-        paragraph:
-          '2D Classic: arrows steer by compass · 3D Cockpit: left/right turn the bike · R resets · Esc pauses',
+        variant: 'title' as const,
+        titleSlot: (
+          <>
+            <div className='wordmark'>
+              <span className='wordmark-line'>Lightcycle</span>
+              <span className='wordmark-line wordmark-line-two'>
+                <span className='wordmark-rule' aria-hidden='true' />
+                Arena
+              </span>
+            </div>
+            <p className='title-tagline'>Can you escape the grid?</p>
+          </>
+        ),
         actions: menuActions,
+        actionsLayout: 'menu' as const,
         showLeaderboard: true,
-        extraContent: (
+        // Three rows is a scoreboard; five is a page that needs scrolling.
+        maxRows: 3,
+        // What you came to press goes first; how you want it set up follows.
+        footer: (
           <>
             {jetWallRule}
             {game.jetWallEnabled && (
@@ -194,11 +254,10 @@ export function GameCanvas(): JSX.Element {
             )}
             {preferenceToggles}
             <p className='menu-hint'>
-              Enter starts a solo run in the last view used ({viewLabel})
+              Arrows steer · R resets · Esc pauses · Enter starts in {viewLabel}
             </p>
           </>
         ),
-        styleOverride: { background: 'rgba(0,0,0,0.65)' },
       };
     }
 
@@ -219,7 +278,14 @@ export function GameCanvas(): JSX.Element {
 
       return {
         title,
-        paragraph: state.roundMessage ?? undefined,
+        extraContent: (
+          <>
+            {state.roundMessage && (
+              <p className='verdict-line'>{state.roundMessage}</p>
+            )}
+            {hasNextRider && <NextRiderNote level={state.level + 1} />}
+          </>
+        ),
         actions: [
           {
             label:
@@ -233,7 +299,6 @@ export function GameCanvas(): JSX.Element {
           { label: 'Menu', variant: 'secondary', onSelect: actions.backToMenu },
         ],
         showLeaderboard: state.matchMode === 'solo',
-        extraContent: hasNextRider ? <NextRiderNote level={state.level + 1} /> : undefined,
       };
     }
 
@@ -249,7 +314,10 @@ export function GameCanvas(): JSX.Element {
         showLeaderboard: true,
         extraContent: (
           <>
-            <p style={{ marginTop: 6 }}>Your final score: {formattedScore}</p>
+            <span className='final-score'>
+              <span className='final-score-key'>Final score</span>
+              <span className='final-score-value'>{formattedScore}</span>
+            </span>
             {game.needsNameForSave ? (
               <div className='save-score-form'>
                 <input
@@ -298,13 +366,16 @@ export function GameCanvas(): JSX.Element {
   const stateOverlay = overlayConfig ? (
     <GameOverlay
       title={overlayConfig.title}
+      titleSlot={overlayConfig.titleSlot}
+      variant={overlayConfig.variant}
       paragraph={overlayConfig.paragraph}
       actions={overlayConfig.actions}
+      actionsLayout={overlayConfig.actionsLayout}
       showLeaderboard={overlayConfig.showLeaderboard}
       leaderboardEntries={game.leaderboard}
-      maxRows={5}
+      maxRows={overlayConfig.maxRows ?? 5}
       extraContent={overlayConfig.extraContent}
-      styleOverride={overlayConfig.styleOverride}
+      footer={overlayConfig.footer}
     />
   ) : null;
 
@@ -326,10 +397,15 @@ export function GameCanvas(): JSX.Element {
     </div>
   );
 
-  return game.isMobile ? (
-    <div className='mobile-stage'>
-      <div className='hud-zone'>{hud}</div>
-      {arena}
+  // Nothing to report before a run starts, and a title screen wearing a HUD
+  // is the surest sign of a web page pretending to be a game.
+  const hudZone =
+    state.gameState === 'menu' ? null : <div className='hud-zone'>{hud}</div>;
+
+  // On the title screen there is nothing to steer, so the pad stands down and
+  // the screen belongs to the game's name rather than half of each.
+  const controlsZone =
+    state.gameState === 'menu' ? null : (
       <div className='controls-zone'>
         <DPadOverlay
           onInput={actions.steer}
@@ -339,10 +415,17 @@ export function GameCanvas(): JSX.Element {
           isCutting={game.isPlayerCuttingWall}
         />
       </div>
+    );
+
+  return game.isMobile ? (
+    <div className='mobile-stage'>
+      {hudZone}
+      {arena}
+      {controlsZone}
     </div>
   ) : (
     <div className='game-stage'>
-      <div className='hud-zone'>{hud}</div>
+      {hudZone}
       {arena}
     </div>
   );

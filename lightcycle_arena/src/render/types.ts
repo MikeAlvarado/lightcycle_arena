@@ -40,8 +40,6 @@ export interface RenderFrame {
   interpolationAlpha: number;
   /** 0 at the slowest level, 1 at the fastest. Drives the sense of speed. */
   speedFactor: number;
-  /** Desktop-only hint drawn on the board; null hides it. */
-  controlsHint: string | null;
 }
 
 /**
