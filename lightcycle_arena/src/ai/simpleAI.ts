@@ -109,12 +109,13 @@ export function decideNextDirection(
 
     case "Hard":
     case "VeryHard":
-    case "Insane":
+    case "Insane": {
       // Placeholder: prefers "up" > "right" > "down" > "left" if safe
       const preferenceOrder: Direction[] = ["up", "right", "down", "left"];
       for (const dir of preferenceOrder) {
         if (safeDirections.includes(dir)) return dir;
       }
       return pickRandom(safeDirections);
+    }
   }
 }

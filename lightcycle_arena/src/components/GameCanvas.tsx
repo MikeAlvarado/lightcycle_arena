@@ -1,9 +1,9 @@
 // React
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, JSX, ReactNode, RefObject } from 'react';
 
 // Types (propios)
 import type { GameState, HighScoreEntry, RenderMode } from '../types/game';
-import type { GridConfig } from '../utils/gridConfig';
 import type { LatticeMatrix, LogicalVertex } from '../utils/latticeHelpers';
 import type { Player, PlayerForInput } from '../types/player';
 import type { AiDifficulty } from '../ai/simpleAI';
@@ -44,7 +44,7 @@ import { handleKeyDown as handleKeyDownBase } from '../utils/inputHandlers';
 import type { SteeringMode } from '../utils/steering';
 import { resolveSteering } from '../utils/steering';
 import { createCanvas2DRenderer } from '../render/canvas2dRenderer';
-import { createThreeRenderer } from '../render/threeRenderer';
+import { loadThreeRenderer } from '../render/loadThreeRenderer';
 
 // IA y hooks
 import { AI_PARAMS, decideNextDirection } from '../ai/simpleAI';
@@ -75,21 +75,15 @@ export function GameCanvas(): JSX.Element {
   const minimapRendererRef = useRef<GameRenderer | null>(null);
   const [renderMode, setRenderMode] = useState<RenderMode>(loadRenderMode);
 
-  // Grid
-  const gridRef = useRef<GridConfig>({
-    columns: GRID_CONFIG.columns,
-    rows: GRID_CONFIG.rows,
-  });
-
   // Lattices
   const occupancyLatticeRef = useRef<LatticeMatrix>(
-    createEmptyLattice(gridRef.current.rows, gridRef.current.columns)
+    createEmptyLattice(GRID_CONFIG.rows, GRID_CONFIG.columns)
   );
   const playerOneLatticeRef = useRef<LatticeMatrix>(
-    createEmptyLattice(gridRef.current.rows, gridRef.current.columns)
+    createEmptyLattice(GRID_CONFIG.rows, GRID_CONFIG.columns)
   );
   const playerTwoLatticeRef = useRef<LatticeMatrix>(
-    createEmptyLattice(gridRef.current.rows, gridRef.current.columns)
+    createEmptyLattice(GRID_CONFIG.rows, GRID_CONFIG.columns)
   );
 
   // Game meta
@@ -111,7 +105,9 @@ export function GameCanvas(): JSX.Element {
   const pendingScoreRef = useRef<number>(0);
 
   // Razón del fin de la run (solo para el overlay final)
-  const gameOverReasonRef = useRef<'victory' | 'outOfLives' | 'none'>('none');
+  const [gameOverReason, setGameOverReason] = useState<
+    'victory' | 'outOfLives' | 'none'
+  >('none');
 
   // Evitar doble guardado al final de la run
   const savedThisRunRef = useRef<boolean>(false);
@@ -120,14 +116,14 @@ export function GameCanvas(): JSX.Element {
   // Spawns
   const playerSpawn: LogicalVertex = useMemo(
     () => ({
-      columnIndexInCells: Math.floor(gridRef.current.columns / 2),
-      rowIndexInCells: gridRef.current.rows - 6,
+      columnIndexInCells: Math.floor(GRID_CONFIG.columns / 2),
+      rowIndexInCells: GRID_CONFIG.rows - 6,
     }),
     []
   );
   const botSpawn: LogicalVertex = useMemo(
     () => ({
-      columnIndexInCells: Math.floor(gridRef.current.columns / 2),
+      columnIndexInCells: Math.floor(GRID_CONFIG.columns / 2),
       rowIndexInCells: 6,
     }),
     []
@@ -170,16 +166,16 @@ export function GameCanvas(): JSX.Element {
   // Round reset (keeps lives/level/score)
   const resetRound = useCallback((): void => {
     occupancyLatticeRef.current = createEmptyLattice(
-      gridRef.current.rows,
-      gridRef.current.columns
+      GRID_CONFIG.rows,
+      GRID_CONFIG.columns
     );
     playerOneLatticeRef.current = createEmptyLattice(
-      gridRef.current.rows,
-      gridRef.current.columns
+      GRID_CONFIG.rows,
+      GRID_CONFIG.columns
     );
     playerTwoLatticeRef.current = createEmptyLattice(
-      gridRef.current.rows,
-      gridRef.current.columns
+      GRID_CONFIG.rows,
+      GRID_CONFIG.columns
     );
 
     playerOneRef.current.headLatticeIndex = toLatticeVertexIndices(playerSpawn);
@@ -231,7 +227,7 @@ export function GameCanvas(): JSX.Element {
   );
 
   // Movement
-  function moveOnePlayer(playerRef: React.MutableRefObject<Player>): void {
+  function moveOnePlayer(playerRef: RefObject<Player>): void {
     applyPendingDirection(playerRef);
 
     const fromVertex = playerRef.current.headLatticeIndex;
@@ -239,8 +235,8 @@ export function GameCanvas(): JSX.Element {
       stepOnLattice(fromVertex, playerRef.current.direction);
 
     if (
-      !isInsideLattice(traversedEdgeCellInLattice, gridRef.current) ||
-      !isInsideLattice(destinationVertexInLattice, gridRef.current) ||
+      !isInsideLattice(traversedEdgeCellInLattice, GRID_CONFIG) ||
+      !isInsideLattice(destinationVertexInLattice, GRID_CONFIG) ||
       isOccupied(occupancyLatticeRef.current, traversedEdgeCellInLattice) ||
       isOccupied(occupancyLatticeRef.current, destinationVertexInLattice)
     ) {
@@ -316,7 +312,7 @@ export function GameCanvas(): JSX.Element {
     // Prevent duplicate saving or prompts
     if (savedThisRunRef.current) return;
     savedThisRunRef.current = true;
-    gameOverReasonRef.current = runResult;
+    setGameOverReason(runResult);
     pendingScoreRef.current = score; // level bonus already included earlier if win
 
     if (playerName) {
@@ -367,7 +363,7 @@ export function GameCanvas(): JSX.Element {
       tickCounterRef.current % decisionCadence === 0
     ) {
       const aiView = {
-        grid: gridRef.current,
+        grid: GRID_CONFIG,
         lattice: occupancyLatticeRef.current,
         self: playerTwoRef.current,
         opponent: playerOneRef.current,
@@ -399,7 +395,7 @@ export function GameCanvas(): JSX.Element {
    */
   function buildRenderFrame(interpolationAlpha: number): RenderFrame {
     return {
-      grid: gridRef.current,
+      grid: GRID_CONFIG,
       players: [
         {
           color: playerOneRef.current.color,
@@ -428,37 +424,57 @@ export function GameCanvas(): JSX.Element {
     };
   }
 
+  // Fetch the 3D chunk while the player is still reading the menu, so picking
+  // the cockpit doesn't open on an empty canvas.
+  useEffect(() => {
+    if (gameState === 'menu') void loadThreeRenderer();
+  }, [gameState]);
+
   // Main renderer lifecycle. Kept out of the loop effect so switching level or
   // game state never tears down the 3D scene.
   useEffect(() => {
     const canvas = canvasReference.current;
     if (!canvas) return;
 
-    let renderer: GameRenderer;
-    if (renderMode === '3d') {
-      try {
-        renderer = createThreeRenderer(canvas, gridRef.current, {
-          enableBloom: !isMobile,
-        });
-      } catch (error) {
-        // No WebGL (old device, blocked context): fall back to the 2D board
-        // rather than leaving the player staring at a blank canvas.
-        console.warn('3D view unavailable, falling back to 2D:', error);
-        setRenderMode('2d');
-        return;
-      }
-    } else {
-      renderer = createCanvas2DRenderer(canvas, gridRef.current);
+    if (renderMode !== '3d') {
+      const renderer = createCanvas2DRenderer(canvas, GRID_CONFIG);
+      rendererRef.current = renderer;
+      renderer.resize();
+
+      return () => {
+        renderer.dispose();
+        rendererRef.current = null;
+      };
     }
 
-    rendererRef.current = renderer;
-    renderer.resize();
+    let cancelled = false;
+
+    loadThreeRenderer()
+      .then(({ createThreeRenderer }) => {
+        if (cancelled) return;
+
+        const renderer = createThreeRenderer(canvas, GRID_CONFIG, {
+          enableBloom: !isMobile,
+        });
+        rendererRef.current = renderer;
+        renderer.resize();
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+
+        // Either the chunk failed to load or there is no WebGL context to be
+        // had (old device, blocked GPU). Fall back to the flat board instead of
+        // leaving the player staring at nothing.
+        console.warn('3D view unavailable, falling back to the flat board:', error);
+        setRenderMode('2d');
+      });
 
     return () => {
-      renderer.dispose();
+      cancelled = true;
+      rendererRef.current?.dispose();
       rendererRef.current = null;
     };
-  }, [renderMode, isMobile]);
+  }, [renderMode, isMobile, gameState]);
 
   // Minimap: the 2D board reused at postage-stamp size, so the cockpit view
   // doesn't cost the player all arena awareness.
@@ -468,7 +484,7 @@ export function GameCanvas(): JSX.Element {
 
     const minimapRenderer = createCanvas2DRenderer(
       minimapCanvas,
-      gridRef.current,
+      GRID_CONFIG,
       { sizing: 'match-css-size' }
     );
     minimapRendererRef.current = minimapRenderer;
@@ -545,7 +561,7 @@ export function GameCanvas(): JSX.Element {
       if (gameState !== 'playing') return;
       handleKeyDownBase(
         event,
-        playerOneRef as React.MutableRefObject<PlayerForInput>,
+        playerOneRef as RefObject<PlayerForInput>,
         handleManualReset,
         steeringMode
       );
@@ -662,8 +678,8 @@ export function GameCanvas(): JSX.Element {
     secondaryLabel?: string;
     onSecondary?: () => void;
     showLeaderboard: boolean;
-    extraContent?: React.ReactNode;
-    styleOverride?: React.CSSProperties;
+    extraContent?: ReactNode;
+    styleOverride?: CSSProperties;
   } {
     const isWinMessage = overlayMessage?.startsWith('You win') ?? false;
 
@@ -700,8 +716,7 @@ export function GameCanvas(): JSX.Element {
     }
 
     if (gameState === 'gameOver') {
-      const title =
-        gameOverReasonRef.current === 'victory' ? 'Run Complete' : 'Game Over';
+      const title = gameOverReason === 'victory' ? 'Run Complete' : 'Game Over';
 
       return {
         title,

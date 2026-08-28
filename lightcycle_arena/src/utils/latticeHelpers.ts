@@ -1,5 +1,7 @@
 // src/utils/latticeHelpers.ts
 
+import type { RefObject } from "react";
+
 import type { GridConfig } from "./gridConfig";
 
 /**
@@ -201,7 +203,7 @@ export function turnRight(direction: Direction): Direction {
  * Safe to call each tick before stepping.
  */
 export function applyPendingDirection<T extends { direction: Direction; pendingDirection: Direction }>(
-  playerRef: React.MutableRefObject<T>
+  playerRef: RefObject<T>
 ): void {
   const { direction, pendingDirection } = playerRef.current;
 

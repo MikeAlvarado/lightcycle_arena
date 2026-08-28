@@ -1,4 +1,6 @@
 // src/components/GameOverlay.tsx
+import type { CSSProperties, JSX, ReactNode } from "react";
+
 import { HighScoresPanel } from "./HighScoresPanel";
 import type { HighScoreEntry } from "../types/game";
 
@@ -12,8 +14,8 @@ interface GameOverlayProps {
   showLeaderboard?: boolean;
   leaderboardEntries?: HighScoreEntry[];
   maxRows?: number;
-  extraContent?: React.ReactNode;
-  styleOverride?: React.CSSProperties;
+  extraContent?: ReactNode;
+  styleOverride?: CSSProperties;
 }
 
 /**
