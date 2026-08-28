@@ -159,19 +159,46 @@
 
 @media (max-width: 768px) {
   .hud {
-    gap: 10px;
+    gap: 8px;
   }
 
   .hud-slot {
-    gap: 12px;
+    gap: 10px;
+  }
+
+  .hud-key {
+    font-size: 0.55rem;
+    letter-spacing: 0.14em;
   }
 
   .hud-score-value {
-    font-size: 1.3rem;
+    font-size: 1.15rem;
+  }
+
+  .hud-best {
+    font-size: 0.6rem;
+  }
+
+  .hud-rival {
+    font-size: 0.9rem;
+  }
+
+  .hud-pip {
+    width: 7px;
+    height: 7px;
   }
 
   .hud-view {
     display: none;
+  }
+
+  .wall-meter {
+    margin-top: 5px;
+  }
+
+  .wall-meter-label {
+    font-size: 0.55rem;
+    min-width: 8ch;
   }
 }
 

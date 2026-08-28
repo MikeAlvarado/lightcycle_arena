@@ -55,7 +55,10 @@ export function DPadOverlay({
 
   if (steeringMode === "relative") {
     return (
-      <div className="control-pad is-turns" aria-label="On-screen controls">
+      <div
+        className={`control-pad is-turns${cutButton ? " has-cut" : ""}`}
+        aria-label="On-screen controls"
+      >
         {resetButton}
 
         <button

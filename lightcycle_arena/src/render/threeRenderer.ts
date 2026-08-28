@@ -58,10 +58,16 @@ import {
 
 const BACKGROUND_COLOR = 0x04060d;
 
-const TRAIL_HEIGHT = 1.35;
-const TRAIL_THICKNESS = 0.26;
-const TRAIL_RIM_HEIGHT = 0.13;
-const TRAIL_RIM_THICKNESS = 0.34;
+/*
+ * A chase camera rides directly over its own wall, so the only face of it you
+ * ever see is the top. Tall and thin is what turns that into a ribbon running
+ * away behind you rather than a stripe painted on the floor — and the rim has
+ * to carry itself on a phone, where there is no bloom to help it.
+ */
+const TRAIL_HEIGHT = 1.9;
+const TRAIL_THICKNESS = 0.17;
+const TRAIL_RIM_HEIGHT = 0.1;
+const TRAIL_RIM_THICKNESS = 0.23;
 /**
  * The wall is laid a bit behind the rear wheel. Without this gap the bike sits
  * inside its own glow and the chase camera can't read its silhouette.
@@ -84,6 +90,12 @@ const CAMERA_BACK_DISTANCE = 4.8;
 const CAMERA_HEIGHT = 2.7;
 const CAMERA_LOOK_AHEAD = 11;
 const CAMERA_LOOK_HEIGHT = 1;
+/**
+ * A phone gets a much wider vertical lens, and most of what that buys is empty
+ * sky. Dropping the point the camera looks at spends it on floor instead.
+ */
+const LOOK_DROP_PER_EXTRA_FOV_DEGREE = 0.02;
+
 const CAMERA_FOLLOW_RESPONSIVENESS = 11;
 const BIKE_TURN_RESPONSIVENESS = 16;
 
@@ -648,18 +660,18 @@ export function createThreeRenderer(
           new MeshStandardMaterial({
             color: 0x05060a,
             emissive: color,
-            emissiveIntensity: 0.8,
+            emissiveIntensity: 0.85,
             roughness: 0.25,
             metalness: 0.1,
             transparent: true,
-            opacity: 0.5,
+            opacity: 0.55,
           })
         ),
         rimMaterial: trackMaterial(
           new MeshStandardMaterial({
             color: 0x05060a,
             emissive: color,
-            emissiveIntensity: 1.6,
+            emissiveIntensity: 2.6,
             roughness: 0.3,
           })
         ),
@@ -1034,9 +1046,12 @@ export function createThreeRenderer(
     const targetLookX = leadBike.position.x + forwardX * CAMERA_LOOK_AHEAD;
     const targetLookZ = leadBike.position.z + forwardZ * CAMERA_LOOK_AHEAD;
 
+    const extraFov = Math.max(0, camera.fov - BASE_VERTICAL_FOV_DEGREES);
+    const lookHeight = CAMERA_LOOK_HEIGHT - extraFov * LOOK_DROP_PER_EXTRA_FOV_DEGREE;
+
     if (shouldSnapCamera) {
       cameraAnchor.set(desiredX, CAMERA_HEIGHT, desiredZ);
-      cameraLookTarget.set(targetLookX, CAMERA_LOOK_HEIGHT, targetLookZ);
+      cameraLookTarget.set(targetLookX, lookHeight, targetLookZ);
       shouldSnapCamera = false;
     } else {
       const factor = smoothingFactor(CAMERA_FOLLOW_RESPONSIVENESS, deltaSeconds);
@@ -1044,6 +1059,7 @@ export function createThreeRenderer(
       cameraAnchor.y = lerp(cameraAnchor.y, CAMERA_HEIGHT, factor);
       cameraAnchor.z = lerp(cameraAnchor.z, desiredZ, factor);
       cameraLookTarget.x = lerp(cameraLookTarget.x, targetLookX, factor);
+      cameraLookTarget.y = lerp(cameraLookTarget.y, lookHeight, factor);
       cameraLookTarget.z = lerp(cameraLookTarget.z, targetLookZ, factor);
     }
 
