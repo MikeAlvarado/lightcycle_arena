@@ -77,6 +77,21 @@ describe("GameCanvas", () => {
     expect(screen.getByText(/^Cyan: 0$/)).toBeInTheDocument();
   });
 
+  it("holds the verdict back so the wreck can be watched, but not the pause", () => {
+    render(<GameCanvas />);
+    fireEvent.click(screen.getByRole("button", { name: "2D Classic" }));
+
+    runFrames(300);
+    fireEvent.keyDown(window, { key: "Escape" });
+    // A pause is not a crash: it arrives at once.
+    expect(screen.getByRole("dialog").className).not.toContain("is-crash");
+
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    runFrames(4000);
+
+    expect(screen.getByRole("dialog").className).toContain("is-crash");
+  });
+
   it("credits the round to whoever is left standing, and says what happened", () => {
     render(<GameCanvas />);
     fireEvent.click(screen.getByRole("button", { name: "2 Players" }));
