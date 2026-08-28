@@ -99,11 +99,12 @@ export function createCanvas2DRenderer(
         drawHeight,
         frame.grid,
         player.headLatticeIndex,
-        player.color
+        player.color,
+        player.direction
       );
     }
 
-    if (frame.showControlsHint) drawControlsHint(context);
+    if (frame.controlsHint) drawControlsHint(context, frame.controlsHint);
   }
 
   return {

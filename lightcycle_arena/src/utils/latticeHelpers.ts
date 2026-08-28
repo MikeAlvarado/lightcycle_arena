@@ -172,6 +172,31 @@ export function occupy(
 }
 
 /**
+ * Quarter turns as seen from the saddle: the cockpit view steers relative to
+ * where the bike is pointing, so it needs these instead of absolute headings.
+ */
+const LEFT_TURNS: Record<Direction, Direction> = {
+  up: "left",
+  left: "down",
+  down: "right",
+  right: "up",
+};
+const RIGHT_TURNS: Record<Direction, Direction> = {
+  up: "right",
+  right: "down",
+  down: "left",
+  left: "up",
+};
+
+export function turnLeft(direction: Direction): Direction {
+  return LEFT_TURNS[direction];
+}
+
+export function turnRight(direction: Direction): Direction {
+  return RIGHT_TURNS[direction];
+}
+
+/**
  * Prevent 180° turns (left<->right, up<->down).
  * Safe to call each tick before stepping.
  */

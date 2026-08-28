@@ -28,7 +28,8 @@ export interface RenderFrame {
    * because logic runs at 10 Hz and the camera at display rate.
    */
   interpolationAlpha: number;
-  showControlsHint: boolean;
+  /** Desktop-only hint drawn on the board; null hides it. */
+  controlsHint: string | null;
 }
 
 /**

@@ -1,6 +1,5 @@
 // src/render/threeRenderer.ts
 import {
-  ACESFilmicToneMapping,
   AmbientLight,
   BoxGeometry,
   BufferGeometry,
@@ -15,6 +14,7 @@ import {
   Material,
   Mesh,
   MeshStandardMaterial,
+  NeutralToneMapping,
   PerspectiveCamera,
   PlaneGeometry,
   PointLight,
@@ -128,8 +128,8 @@ export function createThreeRenderer(
     powerPreference: "high-performance",
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.toneMapping = ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.95;
+  renderer.toneMapping = NeutralToneMapping;
+  renderer.toneMappingExposure = 1;
 
   const scene = new Scene();
   scene.background = new Color(BACKGROUND_COLOR);
@@ -334,18 +334,18 @@ export function createThreeRenderer(
           new MeshStandardMaterial({
             color: 0x05060a,
             emissive: color,
-            emissiveIntensity: 0.6,
+            emissiveIntensity: 0.8,
             roughness: 0.25,
             metalness: 0.1,
             transparent: true,
-            opacity: 0.55,
+            opacity: 0.5,
           })
         ),
         rimMaterial: trackMaterial(
           new MeshStandardMaterial({
             color: 0x05060a,
             emissive: color,
-            emissiveIntensity: 2.1,
+            emissiveIntensity: 1.6,
             roughness: 0.3,
           })
         ),

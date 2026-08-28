@@ -1,51 +1,52 @@
 // src/utils/inputHandlers.ts
 import type { PlayerForInput } from "../types/player";
+import type { SteerIntent, SteeringMode } from "./steering";
+import { resolveSteering } from "./steering";
 
-export function handleKeyDown(
-  event: KeyboardEvent,
-  playerRef: React.MutableRefObject<PlayerForInput>,
-  resetRound: () => void
-): void {
-  const key = event.key; // e.g., "ArrowUp", "w", "W", "r"
-  let handled = false;
-
+/** Maps a keyboard key to the direction the player asked for, if any. */
+function intentForKey(key: string): SteerIntent | null {
   switch (key) {
     case "ArrowUp":
     case "w":
     case "W":
-      playerRef.current.pendingDirection = "up";
-      handled = true;
-      break;
-
+      return "up";
     case "ArrowDown":
     case "s":
     case "S":
-      playerRef.current.pendingDirection = "down";
-      handled = true;
-      break;
-
+      return "down";
     case "ArrowLeft":
     case "a":
     case "A":
-      playerRef.current.pendingDirection = "left";
-      handled = true;
-      break;
-
+      return "left";
     case "ArrowRight":
     case "d":
     case "D":
-      playerRef.current.pendingDirection = "right";
-      handled = true;
-      break;
-
-    case "r":
-    case "R":
-      resetRound();
-      handled = true;
-      break;
-
+      return "right";
     default:
-      handled = false;
+      return null;
+  }
+}
+
+export function handleKeyDown(
+  event: KeyboardEvent,
+  playerRef: React.MutableRefObject<PlayerForInput>,
+  resetRound: () => void,
+  steeringMode: SteeringMode = "absolute"
+): void {
+  const key = event.key; // e.g., "ArrowUp", "w", "W", "r"
+  let handled = false;
+
+  const intent = intentForKey(key);
+  if (intent) {
+    playerRef.current.pendingDirection = resolveSteering(
+      intent,
+      playerRef.current.direction,
+      steeringMode
+    );
+    handled = true;
+  } else if (key === "r" || key === "R") {
+    resetRound();
+    handled = true;
   }
 
   // Prevent the browser from scrolling the page when we handled the key

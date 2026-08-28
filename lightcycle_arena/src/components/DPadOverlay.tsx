@@ -6,16 +6,25 @@ import {
   centerCellContainerStyle,
   resetButtonStyle,
   resetLabelStyle,
+  turnButtonStyle,
+  turnPadContainerStyle,
 } from "../styles/dpadStyles";
+import type { SteeringMode } from "../utils/steering";
 
 export type DPadDirection = "up" | "down" | "left" | "right";
 
 interface DPadOverlayProps {
   onInput: (direction: DPadDirection) => void;
   onReset: () => void;
+  /** Relative steering only needs two keys, so it gets its own layout. */
+  steeringMode?: SteeringMode;
 }
 
-export function DPadOverlay({ onInput, onReset }: DPadOverlayProps): JSX.Element {
+export function DPadOverlay({
+  onInput,
+  onReset,
+  steeringMode = "absolute",
+}: DPadOverlayProps): JSX.Element {
   // pointerdown fires once for both touch and mouse, with no click delay.
   // (React 18 registers touchstart as passive, so preventDefault there is a
   // no-op that logs a console error; scrolling/zoom is blocked via CSS
@@ -25,6 +34,32 @@ export function DPadOverlay({ onInput, onReset }: DPadOverlayProps): JSX.Element
   }
   function bindReset() {
     return { onPointerDown: () => onReset() };
+  }
+
+  const resetButton = (
+    <div style={centerCellContainerStyle}>
+      <button style={resetButtonStyle} {...bindReset()} aria-label="Reset round">
+        <span style={resetLabelStyle}>Reset</span>
+      </button>
+    </div>
+  );
+
+  if (steeringMode === "relative") {
+    return (
+      <div style={dPadFillWrapperStyle} aria-label="On-screen controls">
+        <div style={turnPadContainerStyle}>
+          <button style={turnButtonStyle} {...bind("left")} aria-label="Turn left">
+            <span style={labelStyle}>↰</span>
+          </button>
+
+          {resetButton}
+
+          <button style={turnButtonStyle} {...bind("right")} aria-label="Turn right">
+            <span style={labelStyle}>↱</span>
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -40,11 +75,7 @@ export function DPadOverlay({ onInput, onReset }: DPadOverlayProps): JSX.Element
           <span style={labelStyle}>◀</span>
         </button>
 
-        <div style={centerCellContainerStyle}>
-          <button style={resetButtonStyle} {...bindReset()} aria-label="Reset round">
-            <span style={resetLabelStyle}>Reset</span>
-          </button>
-        </div>
+        {resetButton}
 
         <button style={buttonStyle} {...bind("right")} aria-label="Move right">
           <span style={labelStyle}>▶</span>
