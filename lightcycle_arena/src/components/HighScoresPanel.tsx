@@ -1,4 +1,6 @@
 // src/components/HighScoresPanel.tsx
+import type { JSX } from "react";
+
 import type { HighScoreEntry } from "../types/game";
 
 interface HighScoresPanelProps {

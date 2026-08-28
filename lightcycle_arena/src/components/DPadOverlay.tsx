@@ -9,6 +9,8 @@ import {
   turnButtonStyle,
   turnPadContainerStyle,
 } from "../styles/dpadStyles";
+import type { JSX } from "react";
+
 import type { SteeringMode } from "../utils/steering";
 
 export type DPadDirection = "up" | "down" | "left" | "right";

@@ -9,7 +9,7 @@
 /coverage
 
 # production
-/build
+/dist
 
 # firebase (local deploy cache, changes on every `firebase deploy`)
 /.firebase

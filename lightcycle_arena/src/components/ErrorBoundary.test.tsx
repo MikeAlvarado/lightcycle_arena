@@ -1,4 +1,6 @@
 // src/components/ErrorBoundary.test.tsx
+import type { JSX } from "react";
+
 import { render, screen } from "@testing-library/react";
 import { ErrorBoundary } from "./ErrorBoundary";
 
@@ -17,7 +19,7 @@ describe("ErrorBoundary", () => {
   });
 
   it("shows a fallback instead of a blank screen when a child throws", () => {
-    const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     render(
       <ErrorBoundary>

@@ -18,7 +18,8 @@ export function loadPlayerName(): string | null {
   try { return localStorage.getItem(KEY_PLAYER_NAME); } catch { return null; }
 }
 export function savePlayerName(name: string): void {
-  try { localStorage.setItem(KEY_PLAYER_NAME, name); } catch {}
+  // Private mode and blocked storage both throw; losing the name is harmless.
+  try { localStorage.setItem(KEY_PLAYER_NAME, name); } catch { /* not fatal */ }
 }
 
 /** Remembers the last arena view chosen from the menu. Defaults to 2D. */
@@ -26,7 +27,7 @@ export function loadRenderMode(): RenderMode {
   try { return localStorage.getItem(KEY_RENDER_MODE) === "3d" ? "3d" : "2d"; } catch { return "2d"; }
 }
 export function saveRenderMode(mode: RenderMode): void {
-  try { localStorage.setItem(KEY_RENDER_MODE, mode); } catch {}
+  try { localStorage.setItem(KEY_RENDER_MODE, mode); } catch { /* not fatal */ }
 }
 
 /** Type guard so malformed/tampered localStorage entries can't reach rendering code. */
@@ -62,7 +63,7 @@ export function saveHighScores(list: HighScoreEntry[]): void {
     localStorage.setItem(KEY_HIGHSCORES, JSON.stringify(list));
     const max = list.length ? Math.max(...list.map(e => e.score)) : 0;
     localStorage.setItem(KEY_HIGHSCORE_MAX, JSON.stringify(max));
-  } catch {}
+  } catch { /* scores are a nicety; never break the game over storage */ }
 }
 export function loadHighScoreMax(): number {
   try {

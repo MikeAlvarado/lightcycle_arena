@@ -1,4 +1,6 @@
 // src/utils/inputHandlers.ts
+import type { RefObject } from "react";
+
 import type { PlayerForInput } from "../types/player";
 import type { SteerIntent, SteeringMode } from "./steering";
 import { resolveSteering } from "./steering";
@@ -29,7 +31,7 @@ function intentForKey(key: string): SteerIntent | null {
 
 export function handleKeyDown(
   event: KeyboardEvent,
-  playerRef: React.MutableRefObject<PlayerForInput>,
+  playerRef: RefObject<PlayerForInput>,
   resetRound: () => void,
   steeringMode: SteeringMode = "absolute"
 ): void {
