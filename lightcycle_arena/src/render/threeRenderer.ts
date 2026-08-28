@@ -60,11 +60,15 @@ const BACKGROUND_COLOR = 0x04060d;
 
 /*
  * A chase camera rides directly over its own wall, so the only face of it you
- * ever see is the top. Tall and thin is what turns that into a ribbon running
- * away behind you rather than a stripe painted on the floor — and the rim has
- * to carry itself on a phone, where there is no bloom to help it.
+ * ever see is the top. Thin is what turns that into a ribbon running away
+ * behind you rather than a stripe painted on the floor, and the rim has to
+ * carry itself on a phone where there is no bloom to help it.
+ *
+ * The height is bounded by something else entirely: the wall between the camera
+ * and the bike will hide the bike if it is tall enough to cross that line of
+ * sight. From this camera, anything past about 1.4 does.
  */
-const TRAIL_HEIGHT = 1.9;
+const TRAIL_HEIGHT = 1.25;
 const TRAIL_THICKNESS = 0.17;
 const TRAIL_RIM_HEIGHT = 0.1;
 const TRAIL_RIM_THICKNESS = 0.23;
@@ -72,7 +76,7 @@ const TRAIL_RIM_THICKNESS = 0.23;
  * The wall is laid a bit behind the rear wheel. Without this gap the bike sits
  * inside its own glow and the chase camera can't read its silhouette.
  */
-const TRAIL_TIP_GAP = 1.15;
+const TRAIL_TIP_GAP = 1.4;
 
 const ARENA_WALL_HEIGHT = 11;
 const ARENA_WALL_THICKNESS = 1.4;
@@ -87,7 +91,8 @@ const BASE_ASPECT = 16 / 9;
 const MAXIMUM_VERTICAL_FOV_DEGREES = 76;
 
 const CAMERA_BACK_DISTANCE = 4.8;
-const CAMERA_HEIGHT = 2.7;
+/** High enough to see the bike over the wall it is laying. */
+const CAMERA_HEIGHT = 2.9;
 const CAMERA_LOOK_AHEAD = 11;
 const CAMERA_LOOK_HEIGHT = 1;
 /**
