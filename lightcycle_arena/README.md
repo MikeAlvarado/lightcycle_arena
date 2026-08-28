@@ -12,6 +12,25 @@ how the lattice works.
   pure functions, so the ladder can be measured instead of guessed at
 - **Vitest** + Testing Library for tests, **ESLint** (flat config) for linting
 
+## Where things are
+
+```
+src/
+  game/       the rules, as pure functions: the lattice tick, the match
+              reducer, the balance simulator — and the hook that wires them
+  ai/         the bots: territory search, the reflex that keeps a slow bot
+              from riding into a wall it could see
+  render/     the GameRenderer contract and its two implementations, plus the
+              hook that owns the canvases and the one animation loop
+  components/ HUD, overlays and the on-screen pad. They render; they decide
+              nothing
+  config/     the arena, the levels and the rider roster
+  utils/      lattice maths, steering, storage, the 2D drawing primitives
+```
+
+Architecture notes and the things that bite live in
+[CLAUDE.md](../CLAUDE.md) at the repository root.
+
 ## Scripts
 
 | Command | What it does |
