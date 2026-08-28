@@ -1,18 +1,7 @@
-import {
-  cutButtonStyle,
-  dPadFillWrapperStyle,
-  dPadContainerStyle,
-  buttonStyle,
-  labelStyle,
-  centerCellContainerStyle,
-  resetButtonStyle,
-  resetLabelStyle,
-  turnButtonStyle,
-  turnPadContainerStyle,
-} from "../styles/dpadStyles";
 import type { JSX } from "react";
 
 import type { SteeringMode } from "../utils/steering";
+import "../styles/controls.css";
 
 export type DPadDirection = "up" | "down" | "left" | "right";
 
@@ -34,23 +23,28 @@ export function DPadOverlay({
   isCutting = false,
 }: DPadOverlayProps): JSX.Element {
   // pointerdown fires once for both touch and mouse, with no click delay.
-  // (React 18 registers touchstart as passive, so preventDefault there is a
-  // no-op that logs a console error; scrolling/zoom is blocked via CSS
+  // (React registers touchstart as passive, so preventDefault there is a no-op
+  // that logs a console error; scrolling and zoom are blocked with CSS
   // touch-action on the buttons instead.)
-  function bind(d: DPadDirection) {
-    return { onPointerDown: () => onInput(d) };
+  function bind(direction: DPadDirection) {
+    return { onPointerDown: () => onInput(direction) };
   }
-  function bindReset() {
-    return { onPointerDown: () => onReset() };
-  }
+
+  const resetButton = (
+    <button
+      type="button"
+      className="control-reset"
+      onPointerDown={onReset}
+      aria-label="Reset round"
+    >
+      Reset
+    </button>
+  );
 
   const cutButton = onCut ? (
     <button
-      style={{
-        ...cutButtonStyle,
-        borderColor: isCutting ? "#ffc23a" : "#3a3a3a",
-        color: isCutting ? "#ffc23a" : "#f0f4ff",
-      }}
+      type="button"
+      className={`control-cut${isCutting ? " is-cutting" : ""}`}
       onPointerDown={onCut}
       aria-pressed={isCutting}
       aria-label="Cut the jet wall"
@@ -59,59 +53,74 @@ export function DPadOverlay({
     </button>
   ) : null;
 
-  const resetButton = (
-    <div style={centerCellContainerStyle}>
-      <button style={resetButtonStyle} {...bindReset()} aria-label="Reset round">
-        <span style={resetLabelStyle}>Reset</span>
-      </button>
-    </div>
-  );
-
   if (steeringMode === "relative") {
     return (
-      <div style={dPadFillWrapperStyle} aria-label="On-screen controls">
+      <div className="control-pad is-turns" aria-label="On-screen controls">
+        {resetButton}
+
+        <button
+          type="button"
+          className="control-key is-turn"
+          {...bind("left")}
+          aria-label="Turn left"
+        >
+          ↰
+        </button>
+
         {cutButton}
-        <div style={turnPadContainerStyle}>
-          <button style={turnButtonStyle} {...bind("left")} aria-label="Turn left">
-            <span style={labelStyle}>↰</span>
-          </button>
 
-          {resetButton}
-
-          <button style={turnButtonStyle} {...bind("right")} aria-label="Turn right">
-            <span style={labelStyle}>↱</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          className="control-key is-turn"
+          {...bind("right")}
+          aria-label="Turn right"
+        >
+          ↱
+        </button>
       </div>
     );
   }
 
   return (
-    <div style={dPadFillWrapperStyle} aria-label="On-screen controls">
-      {cutButton}
-      <div style={dPadContainerStyle}>
-        <div />
-        <button style={buttonStyle} {...bind("up")} aria-label="Move up">
-          <span style={labelStyle}>▲</span>
-        </button>
-        <div />
+    <div className="control-pad is-compass" aria-label="On-screen controls">
+      {resetButton}
 
-        <button style={buttonStyle} {...bind("left")} aria-label="Move left">
-          <span style={labelStyle}>◀</span>
+      <div className="control-cross">
+        <button
+          type="button"
+          className="control-key control-key-up"
+          {...bind("up")}
+          aria-label="Move up"
+        >
+          ▲
         </button>
-
-        {resetButton}
-
-        <button style={buttonStyle} {...bind("right")} aria-label="Move right">
-          <span style={labelStyle}>▶</span>
+        <button
+          type="button"
+          className="control-key control-key-left"
+          {...bind("left")}
+          aria-label="Move left"
+        >
+          ◀
         </button>
-
-        <div />
-        <button style={buttonStyle} {...bind("down")} aria-label="Move down">
-          <span style={labelStyle}>▼</span>
+        <button
+          type="button"
+          className="control-key control-key-right"
+          {...bind("right")}
+          aria-label="Move right"
+        >
+          ▶
         </button>
-        <div />
+        <button
+          type="button"
+          className="control-key control-key-down"
+          {...bind("down")}
+          aria-label="Move down"
+        >
+          ▼
+        </button>
       </div>
+
+      {cutButton}
     </div>
   );
 }
