@@ -59,10 +59,10 @@ describe("GameCanvas", () => {
     expect(screen.getByRole("button", { name: "2 Players" })).toBeInTheDocument();
   });
 
-  it("calls it a draw when both riders go down in the same tick", () => {
-    // Two people, nobody steering: the spawns are mirror images, so both bikes
-    // reach the wall on the very same tick. Riders used to be resolved one
-    // after the other, which handed the round to whoever went second.
+  it("takes both riders down when they meet head-on", () => {
+    // Two people, nobody steering: the bikes start nose to nose on the same
+    // column, so this is a head-on every time. Riders used to be resolved one
+    // after the other, and whoever went second rode away from it unharmed.
     render(<GameCanvas />);
     fireEvent.click(screen.getByRole("button", { name: "2 Players" }));
 
@@ -70,8 +70,7 @@ describe("GameCanvas", () => {
 
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent("Draw");
-    expect(dialog).toHaveTextContent("Yellow hit the arena wall.");
-    expect(dialog).toHaveTextContent("Cyan hit the arena wall.");
+    expect(dialog).toHaveTextContent("Yellow and Cyan went head-on.");
 
     // A draw is nobody's round.
     expect(screen.getByText(/^Yellow: 0$/)).toBeInTheDocument();

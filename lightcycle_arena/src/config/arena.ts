@@ -3,14 +3,16 @@ import type { Direction, LogicalVertex } from "../utils/latticeHelpers";
 import { GRID_CONFIG } from "../utils/gridConfig";
 
 /**
- * Where the two riders start.
+ * Where the two riders start: nose to nose on the same column, the way the
+ * films open a lightcycle duel.
  *
- * They used to share a column, nose to nose. Simulated over 40 rounds, 80% of
- * them ended in a head-on and the average round lasted one second flat: a rider
- * who didn't turn immediately was dead, which is no way to open a match. Six
- * cells apart takes head-on openings to zero and roughly doubles the round.
+ * This only works because the bots flinch. Riding onto a square the other rider
+ * could also take costs them, and that check runs every tick regardless of how
+ * slowly a given difficulty thinks — so the opening is a game of chicken the
+ * bot swerves out of, rather than a coin toss neither of you survives. See the
+ * opening table in the balance simulation.
  */
-export const SPAWN_COLUMN_OFFSET_IN_CELLS = 6;
+export const SPAWN_COLUMN_OFFSET_IN_CELLS = 0;
 
 const MIDDLE_COLUMN = Math.floor(GRID_CONFIG.columns / 2);
 

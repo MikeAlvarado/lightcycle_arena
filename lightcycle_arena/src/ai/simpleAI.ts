@@ -23,51 +23,31 @@ export interface AiParams {
   decisionEveryNTicks: number;
   /** Probability of choosing a suboptimal (random) move. */
   randomness: number;
-  /**
-   * How far the bot looks, in units of SPACE_PER_LOOKAHEAD vertices.
-   * 0 means it doesn't look at all and simply picks a safe direction.
-   */
+  /** How far the bot looks, in units of SPACE_PER_LOOKAHEAD vertices. */
   lookahead: number;
-  /** 0..1 — how much the bot gives up open space to close in on its rival. */
-  aggression: number;
-  /**
-   * How the bot decides.
-   * - "reflex": avoid walls, nothing more.
-   * - "space": take the move that leaves the most room to keep riding.
-   * - "territory": split the arena between the two riders and take the move
-   *   that claims the most of it. This is the one that cuts you off on purpose.
-   */
-  strategy: "reflex" | "space" | "territory";
 }
 
 /** Vertices explored per unit of lookahead when measuring open space. */
 const SPACE_PER_LOOKAHEAD = 45;
 /** Tie-break nudge that keeps the bot from weaving when directions score alike. */
 const STRAIGHT_LINE_BONUS = 0.5;
-/** Distance (in cells) inside which closing in is worth anything. */
-const CHASE_RANGE_IN_CELLS = 20;
-/**
- * Cost of riding onto a vertex the other rider could also take this tick.
- * Trading yourself for your rival is not a win for either of them, and a bot
- * that keeps offering the trade reads as suicidal rather than aggressive.
- * Large enough to outweigh any chase bonus, small enough that a bot with no
- * other option still takes it.
- */
-const HEAD_ON_RISK_PENALTY = 24;
 
 const ALL_DIRECTIONS: Direction[] = ["up", "down", "left", "right"];
 
 /**
  * Parameter values for all difficulty levels.
  */
+/**
+ * Every rider on the grid plays the same game: split the arena and take the
+ * bigger half. What separates a warm-up from CLU is how often they look up, how
+ * far they see, and how often they get it wrong.
+ */
 export const AI_PARAMS: Record<AiDifficulty, AiParams> = {
-  Easy:     { decisionEveryNTicks: 4, randomness: 0.18, lookahead: 0, aggression: 0,    strategy: "reflex" },
-  Normal:   { decisionEveryNTicks: 3, randomness: 0.10, lookahead: 1, aggression: 0,    strategy: "space" },
-  Hard:     { decisionEveryNTicks: 2, randomness: 0.05, lookahead: 2, aggression: 0.15, strategy: "space" },
-  // The top two split the arena instead of just counting their own room, which
-  // is what turns "stays alive" into "shuts the door on you".
-  VeryHard: { decisionEveryNTicks: 1, randomness: 0.02, lookahead: 3, aggression: 0,    strategy: "territory" },
-  Insane:   { decisionEveryNTicks: 1, randomness: 0.00, lookahead: 5, aggression: 0,    strategy: "territory" },
+  Easy:     { decisionEveryNTicks: 3, randomness: 0.22, lookahead: 1 },
+  Normal:   { decisionEveryNTicks: 2, randomness: 0.14, lookahead: 2 },
+  Hard:     { decisionEveryNTicks: 2, randomness: 0.07, lookahead: 3 },
+  VeryHard: { decisionEveryNTicks: 1, randomness: 0.02, lookahead: 4 },
+  Insane:   { decisionEveryNTicks: 1, randomness: 0.00, lookahead: 6 },
 };
 
 /**
@@ -261,11 +241,36 @@ function isSameVertex(first: LatticeIndex, second: LatticeIndex): boolean {
   );
 }
 
-/** Distance between two lattice vertices, in whole cells. */
-function distanceInCells(first: LatticeIndex, second: LatticeIndex): number {
+/** Would riding this way land the bot on a square the rival can also take? */
+export function risksHeadOn(view: AiView, direction: Direction): boolean {
+  if (!view.opponent) return false;
+
+  const { destinationVertexInLattice } = stepOnLattice(
+    view.self.headLatticeIndex,
+    direction
+  );
+
+  return opponentNextVertices(view).some((vertex) =>
+    isSameVertex(vertex, destinationVertexInLattice)
+  );
+}
+
+/**
+ * Bots think on a cadence, and that cadence is most of what makes an easy bot
+ * easy. What it should never buy is stupidity: nobody rides into a wall because
+ * they weren't due to think yet, and nobody trades themselves for the other
+ * rider without looking. Either of those wakes the bot up early.
+ */
+export function shouldDecideThisTick(
+  view: AiView,
+  difficulty: AiDifficulty,
+  tick: number
+): boolean {
+  const cadence = Math.max(1, AI_PARAMS[difficulty].decisionEveryNTicks);
+  if (tick % cadence === 0) return true;
+
   return (
-    Math.abs(first.rowIndexInLattice - second.rowIndexInLattice) / 2 +
-    Math.abs(first.columnIndexInLattice - second.columnIndexInLattice) / 2
+    !isSafeMove(view, view.self.direction) || risksHeadOn(view, view.self.direction)
   );
 }
 
@@ -296,50 +301,32 @@ function scoreDirection(view: AiView, direction: Direction, params: AiParams): n
   setOccupancy(view.lattice, head, true);
 
   const budget = params.lookahead * SPACE_PER_LOOKAHEAD;
-  let score: number;
 
-  if (params.strategy === "territory" && view.opponent) {
-    // Twice the budget: the flood is paying for both riders' halves.
-    score = territoryAdvantage(
-      view.grid,
-      view.lattice,
-      destinationVertexInLattice,
-      view.opponent.headLatticeIndex,
-      budget * 2
-    ).advantage;
-  } else {
-    score = countReachableVertices(
-      view.grid,
-      view.lattice,
-      destinationVertexInLattice,
-      budget
-    );
-  }
+  // Knowing where the rival is turns "how much room have I got" into "how much
+  // of the arena is mine", which is the difference between staying alive and
+  // shutting the door on somebody.
+  const territory = view.opponent
+    ? // Twice the budget: the flood is paying for both riders' halves.
+      territoryAdvantage(
+        view.grid,
+        view.lattice,
+        destinationVertexInLattice,
+        view.opponent.headLatticeIndex,
+        budget * 2
+      ).advantage
+    : countReachableVertices(
+        view.grid,
+        view.lattice,
+        destinationVertexInLattice,
+        budget
+      );
 
   setOccupancy(view.lattice, traversedEdgeCellInLattice, edgeWasOccupied);
   setOccupancy(view.lattice, head, headWasOccupied);
 
-  // Riding onto a square the other rider can also take is a coin flip on both
-  // their lives. Worth it only when everything else is worse.
-  if (
-    opponentNextVertices(view).some((vertex) =>
-      isSameVertex(vertex, destinationVertexInLattice)
-    )
-  ) {
-    score -= HEAD_ON_RISK_PENALTY;
-  }
-
-  if (direction === view.self.direction) score += STRAIGHT_LINE_BONUS;
-
-  if (params.aggression > 0 && view.opponent) {
-    const distance = distanceInCells(
-      destinationVertexInLattice,
-      view.opponent.headLatticeIndex
-    );
-    score += params.aggression * Math.max(0, CHASE_RANGE_IN_CELLS - distance);
-  }
-
-  return score;
+  return direction === view.self.direction
+    ? territory + STRAIGHT_LINE_BONUS
+    : territory;
 }
 
 /**
@@ -355,18 +342,28 @@ export function decideNextDirection(
   // No safe options → keep current direction
   if (safeDirections.length === 0) return view.self.direction;
 
+  /*
+   * Riding onto a square the other rider can also take kills them both, and
+   * neither of them wins a round they are not alive for. So it is ruled out
+   * rather than priced in: no score, however good, buys a trade, and the bot
+   * only takes one when every other door is shut. This is what makes a nose to
+   * nose start a game of chicken instead of a coin toss — and it holds even
+   * when the bot is having one of its random moments.
+   */
+  const withoutTrades = safeDirections.filter(
+    (direction) => !risksHeadOn(view, direction)
+  );
+  const candidates = withoutTrades.length > 0 ? withoutTrades : safeDirections;
+
   // Random chance to make a mistake
   if (Math.random() < params.randomness) {
-    return pickRandom(safeDirections);
+    return pickRandom(candidates);
   }
 
-  // The easiest bot doesn't think ahead at all; it just avoids walls.
-  if (params.strategy === "reflex") return pickRandom(safeDirections);
-
-  let bestDirection = safeDirections[0];
+  let bestDirection = candidates[0];
   let bestScore = -Infinity;
 
-  for (const direction of safeDirections) {
+  for (const direction of candidates) {
     const score = scoreDirection(view, direction, params);
     if (score > bestScore) {
       bestScore = score;

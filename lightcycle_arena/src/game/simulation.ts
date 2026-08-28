@@ -5,7 +5,7 @@ import type { Direction, LogicalVertex } from "../utils/latticeHelpers";
 import type { Player } from "../types/player";
 import type { CrashCause } from "./movement";
 
-import { AI_PARAMS, decideNextDirection } from "../ai/simpleAI";
+import { decideNextDirection, shouldDecideThisTick } from "../ai/simpleAI";
 import {
   PLAYER_SPAWN,
   PLAYER_START_DIRECTION,
@@ -84,18 +84,15 @@ export function simulateRound(setup: SimulationSetup): RoundResult {
       const policy = policies[index];
       if (policy.kind !== "bot") return;
 
-      const cadence = Math.max(1, AI_PARAMS[policy.difficulty].decisionEveryNTicks);
-      if (tick % cadence !== 0) return;
+      const view = {
+        grid,
+        lattice: occupancy,
+        self: rider,
+        opponent: riders[1 - index],
+      };
 
-      rider.pendingDirection = decideNextDirection(
-        {
-          grid,
-          lattice: occupancy,
-          self: rider,
-          opponent: riders[1 - index],
-        },
-        policy.difficulty
-      );
+      if (!shouldDecideThisTick(view, policy.difficulty, tick)) return;
+      rider.pendingDirection = decideNextDirection(view, policy.difficulty);
     });
 
     for (const rider of riders) applyPendingDirection({ current: rider });
@@ -164,6 +161,37 @@ export function summarise(results: RoundResult[]): SeriesSummary {
     headOns: results.filter((result) => result.crashes.includes("headOn")).length,
     averageTicks: total ? Math.round(ticks.reduce((sum, value) => sum + value, 0) / total) : 0,
     shortestTicks: total ? Math.min(...ticks) : 0,
+  };
+}
+
+/**
+ * How often the first policy beats the second, playing half the rounds from
+ * each seat.
+ *
+ * The two spawns are mirror images but the arena is not perfectly even-handed —
+ * ties break the same way for both riders, which quietly favours one seat. Any
+ * comparison between two policies has to swap seats or it measures the seat.
+ */
+export function runDuel(
+  first: RiderPolicy,
+  second: RiderPolicy,
+  rounds: number
+): { winRate: number; drawRate: number; averageTicks: number } {
+  const halfRounds = Math.max(1, Math.round(rounds / 2));
+  const asFirst = runSeries(arenaSetup([first, second]), halfRounds);
+  const asSecond = runSeries(arenaSetup([second, first]), halfRounds);
+
+  const total = asFirst.rounds + asSecond.rounds;
+  const wins = asFirst.firstWins + asSecond.secondWins;
+  const draws = asFirst.draws + asSecond.draws;
+
+  return {
+    winRate: wins / total,
+    drawRate: draws / total,
+    averageTicks: Math.round(
+      (asFirst.averageTicks * asFirst.rounds + asSecond.averageTicks * asSecond.rounds) /
+        total
+    ),
   };
 }
 
