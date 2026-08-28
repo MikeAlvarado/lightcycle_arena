@@ -1,9 +1,10 @@
 // src/utils/storage.ts
-import type { HighScoreEntry } from "../types/game";
+import type { HighScoreEntry, RenderMode } from "../types/game";
 
 const KEY_PLAYER_NAME = "lca.playerName";
 const KEY_HIGHSCORES = "lca.highScores";
 const KEY_HIGHSCORE_MAX = "lca.highScoreMax";
+const KEY_RENDER_MODE = "lca.renderMode";
 
 const SEED_HIGHSCORES: HighScoreEntry[] = [
   { name: "Flynn", score: 50000, dateISO: "1982-06-09T00:00:00.000Z" },
@@ -18,6 +19,14 @@ export function loadPlayerName(): string | null {
 }
 export function savePlayerName(name: string): void {
   try { localStorage.setItem(KEY_PLAYER_NAME, name); } catch {}
+}
+
+/** Remembers the last arena view chosen from the menu. Defaults to 2D. */
+export function loadRenderMode(): RenderMode {
+  try { return localStorage.getItem(KEY_RENDER_MODE) === "3d" ? "3d" : "2d"; } catch { return "2d"; }
+}
+export function saveRenderMode(mode: RenderMode): void {
+  try { localStorage.setItem(KEY_RENDER_MODE, mode); } catch {}
 }
 
 /** Type guard so malformed/tampered localStorage entries can't reach rendering code. */

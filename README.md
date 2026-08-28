@@ -7,6 +7,7 @@ A retro-inspired **Tron-style lightcycle** game built with **React + TypeScript*
 
 ## 🎮 How to Play
 
+- Pick a view from the menu: **2D Classic** (the whole board at once) or **3D Cockpit** (a chase camera behind your bike, with a minimap in the corner). Same game, same rules.
 - Use the **arrow keys** (or the on-screen D-Pad on mobile) to move your lightcycle.
 - Avoid hitting walls or trails — both yours and your opponent’s.
 - Survive as long as possible to gain points.

@@ -2,11 +2,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // Types (propios)
-import type { GameState, HighScoreEntry } from '../types/game';
+import type { GameState, HighScoreEntry, RenderMode } from '../types/game';
 import type { GridConfig } from '../utils/gridConfig';
 import type { LatticeMatrix, LogicalVertex } from '../utils/latticeHelpers';
 import type { Player, PlayerForInput } from '../types/player';
 import type { AiDifficulty } from '../ai/simpleAI';
+import type { GameRenderer, RenderFrame } from '../render/types';
 
 // Config / constantes
 import {
@@ -32,18 +33,16 @@ import {
   loadHighScoreMax,
   loadHighScores,
   loadPlayerName,
+  loadRenderMode,
   savePlayerName,
+  saveRenderMode,
   tryInsertHighScore,
 } from '../utils/storage';
 
 // Entrada / renderizado
 import { handleKeyDown as handleKeyDownBase } from '../utils/inputHandlers';
-import {
-  drawControlsHint,
-  drawGrid,
-  drawHeadAtLatticeVertex,
-  drawLatticeTrails,
-} from '../utils/canvasDrawing';
+import { createCanvas2DRenderer } from '../render/canvas2dRenderer';
+import { createThreeRenderer } from '../render/threeRenderer';
 
 // IA y hooks
 import { AI_PARAMS, decideNextDirection } from '../ai/simpleAI';
@@ -60,11 +59,19 @@ import '../styles/gameUI.css';
 export function GameCanvas(): JSX.Element {
   // Loop timing
   const canvasReference = useRef<HTMLCanvasElement | null>(null);
+  const minimapCanvasReference = useRef<HTMLCanvasElement | null>(null);
   const requestIdReference = useRef<number>(0);
   const lastFrameTimestamp = useRef<number>(0);
   const accumulatedMilliseconds = useRef<number>(0);
   const logicStepMilliseconds = 100; // 10 Hz
+  /** At most this much elapsed time is replayed in one frame (3 logic ticks). */
+  const MAXIMUM_CATCH_UP_MILLISECONDS = 300;
   const tickCounterRef = useRef<number>(0);
+
+  // Renderers (2D board, 3D cockpit, plus the little 2D map shown in 3D)
+  const rendererRef = useRef<GameRenderer | null>(null);
+  const minimapRendererRef = useRef<GameRenderer | null>(null);
+  const [renderMode, setRenderMode] = useState<RenderMode>(loadRenderMode);
 
   // Grid
   const gridRef = useRef<GridConfig>({
@@ -130,6 +137,7 @@ export function GameCanvas(): JSX.Element {
     name: 'Player One',
     color: 'yellow',
     headLatticeIndex: toLatticeVertexIndices(playerSpawn),
+    previousHeadLatticeIndex: toLatticeVertexIndices(playerSpawn),
     direction: 'up',
     pendingDirection: 'up',
     isAlive: true,
@@ -140,6 +148,7 @@ export function GameCanvas(): JSX.Element {
     name: 'Bot',
     color: 'blue',
     headLatticeIndex: toLatticeVertexIndices(botSpawn),
+    previousHeadLatticeIndex: toLatticeVertexIndices(botSpawn),
     direction: 'down',
     pendingDirection: 'down',
     isAlive: true,
@@ -165,12 +174,16 @@ export function GameCanvas(): JSX.Element {
     );
 
     playerOneRef.current.headLatticeIndex = toLatticeVertexIndices(playerSpawn);
+    playerOneRef.current.previousHeadLatticeIndex =
+      toLatticeVertexIndices(playerSpawn);
     playerOneRef.current.direction = 'up';
     playerOneRef.current.pendingDirection = 'up';
     playerOneRef.current.isAlive = true;
     playerOneRef.current.ticksSurvived = 0;
 
     playerTwoRef.current.headLatticeIndex = toLatticeVertexIndices(botSpawn);
+    playerTwoRef.current.previousHeadLatticeIndex =
+      toLatticeVertexIndices(botSpawn);
     playerTwoRef.current.direction = 'down';
     playerTwoRef.current.pendingDirection = 'down';
     playerTwoRef.current.isAlive = true;
@@ -179,6 +192,13 @@ export function GameCanvas(): JSX.Element {
     setOverlayMessage(null);
     savedThisRunRef.current = false;
     tickCounterRef.current = 0;
+
+    // Drop the walls the 3D scene built during the previous round and re-anchor
+    // the frame clock so the first frame after a reset doesn't jump.
+    rendererRef.current?.resetRound();
+    minimapRendererRef.current?.resetRound();
+    accumulatedMilliseconds.current = 0;
+    lastFrameTimestamp.current = 0;
   }, [playerSpawn, botSpawn]);
 
   // New run (after gameOver)
@@ -190,6 +210,16 @@ export function GameCanvas(): JSX.Element {
     setGameState('playing');
     resetRound();
   }, [resetRound]);
+
+  /** Starts a fresh run in the chosen view and remembers it for next time. */
+  const startRunInMode = useCallback(
+    (mode: RenderMode): void => {
+      setRenderMode(mode);
+      saveRenderMode(mode);
+      startNewRun();
+    },
+    [startNewRun]
+  );
 
   // Movement
   function moveOnePlayer(playerRef: React.MutableRefObject<Player>): void {
@@ -206,6 +236,9 @@ export function GameCanvas(): JSX.Element {
       isOccupied(occupancyLatticeRef.current, destinationVertexInLattice)
     ) {
       playerRef.current.isAlive = false;
+      // Crashing leaves the head where it is, so collapse the interpolation
+      // segment: the 3D bike parks on its last vertex instead of sliding on.
+      playerRef.current.previousHeadLatticeIndex = fromVertex;
       return;
     }
 
@@ -219,6 +252,7 @@ export function GameCanvas(): JSX.Element {
     occupy(perPlayer, fromVertex);
     occupy(perPlayer, traversedEdgeCellInLattice);
 
+    playerRef.current.previousHeadLatticeIndex = fromVertex;
     playerRef.current.headLatticeIndex = destinationVertexInLattice;
     playerRef.current.ticksSurvived += 1;
   }
@@ -349,43 +383,104 @@ export function GameCanvas(): JSX.Element {
     }
   }
 
-  // Resize canvas to parent
-  const resizeCanvasKeepingGridAspect = useCallback(() => {
-    const canvas = canvasReference.current!;
-    const parent = canvas.parentElement as HTMLElement;
-    const aspect = gridRef.current.rows / gridRef.current.columns;
+  /**
+   * Snapshot of the round in render-agnostic terms.
+   * `interpolationAlpha` is how far the heads have travelled inside the current
+   * logic tick: the 2D board ignores it, the 3D cockpit rides on it.
+   */
+  function buildRenderFrame(interpolationAlpha: number): RenderFrame {
+    return {
+      grid: gridRef.current,
+      players: [
+        {
+          color: playerOneRef.current.color,
+          headLatticeIndex: playerOneRef.current.headLatticeIndex,
+          previousHeadLatticeIndex:
+            playerOneRef.current.previousHeadLatticeIndex,
+          direction: playerOneRef.current.direction,
+          isAlive: playerOneRef.current.isAlive,
+          trail: playerOneLatticeRef.current,
+        },
+        {
+          color: playerTwoRef.current.color,
+          headLatticeIndex: playerTwoRef.current.headLatticeIndex,
+          previousHeadLatticeIndex:
+            playerTwoRef.current.previousHeadLatticeIndex,
+          direction: playerTwoRef.current.direction,
+          isAlive: playerTwoRef.current.isAlive,
+          trail: playerTwoLatticeRef.current,
+        },
+      ],
+      interpolationAlpha,
+      showControlsHint: !isMobile && renderMode === '2d',
+    };
+  }
 
-    const availableWidth = parent.clientWidth;
-    const availableHeight = parent.clientHeight;
+  // Main renderer lifecycle. Kept out of the loop effect so switching level or
+  // game state never tears down the 3D scene.
+  useEffect(() => {
+    const canvas = canvasReference.current;
+    if (!canvas) return;
 
-    let targetWidth = Math.min(
-      availableWidth,
-      Math.floor(availableHeight / aspect)
+    let renderer: GameRenderer;
+    if (renderMode === '3d') {
+      try {
+        renderer = createThreeRenderer(canvas, gridRef.current, {
+          enableBloom: !isMobile,
+        });
+      } catch (error) {
+        // No WebGL (old device, blocked context): fall back to the 2D board
+        // rather than leaving the player staring at a blank canvas.
+        console.warn('3D view unavailable, falling back to 2D:', error);
+        setRenderMode('2d');
+        return;
+      }
+    } else {
+      renderer = createCanvas2DRenderer(canvas, gridRef.current);
+    }
+
+    rendererRef.current = renderer;
+    renderer.resize();
+
+    return () => {
+      renderer.dispose();
+      rendererRef.current = null;
+    };
+  }, [renderMode, isMobile]);
+
+  // Minimap: the 2D board reused at postage-stamp size, so the cockpit view
+  // doesn't cost the player all arena awareness.
+  useEffect(() => {
+    const minimapCanvas = minimapCanvasReference.current;
+    if (renderMode !== '3d' || !minimapCanvas) return;
+
+    const minimapRenderer = createCanvas2DRenderer(
+      minimapCanvas,
+      gridRef.current,
+      { sizing: 'match-css-size' }
     );
-    let targetHeight = Math.floor(targetWidth * aspect);
+    minimapRendererRef.current = minimapRenderer;
+    minimapRenderer.resize();
 
-    targetWidth = Math.max(240, targetWidth);
-    targetHeight = Math.max(180, targetHeight);
-
-    // Render at device resolution but display at CSS size, otherwise the
-    // canvas looks blurry on high-DPI (retina / mobile) screens.
-    const devicePixelRatioValue = window.devicePixelRatio || 1;
-    canvas.style.width = `${targetWidth}px`;
-    canvas.style.height = `${targetHeight}px`;
-    canvas.width = Math.floor(targetWidth * devicePixelRatioValue);
-    canvas.height = Math.floor(targetHeight * devicePixelRatioValue);
-  }, []);
+    return () => {
+      minimapRenderer.dispose();
+      minimapRendererRef.current = null;
+    };
+  }, [renderMode]);
 
   // Loop + draw
   useEffect(() => {
-    const canvas = canvasReference.current!;
-    const context = canvas.getContext('2d') as CanvasRenderingContext2D;
-
     function animationLoop(currentTimestamp: number): void {
       if (!lastFrameTimestamp.current)
         lastFrameTimestamp.current = currentTimestamp;
 
-      const elapsed = currentTimestamp - lastFrameTimestamp.current;
+      // requestAnimationFrame stops in a hidden tab, so the first frame back
+      // carries the whole pause. Without this cap the catch-up loop would run
+      // hundreds of ticks at once and crash the player before anything is drawn.
+      const elapsed = Math.min(
+        MAXIMUM_CATCH_UP_MILLISECONDS,
+        currentTimestamp - lastFrameTimestamp.current
+      );
       lastFrameTimestamp.current = currentTimestamp;
       accumulatedMilliseconds.current += elapsed;
 
@@ -394,55 +489,25 @@ export function GameCanvas(): JSX.Element {
         accumulatedMilliseconds.current -= logicStepMilliseconds;
       }
 
-      // Draw in CSS pixels; the transform maps them to the high-DPI backing store.
-      const devicePixelRatioValue = window.devicePixelRatio || 1;
-      context.setTransform(
-        devicePixelRatioValue, 0, 0, devicePixelRatioValue, 0, 0
-      );
-      const drawWidth = canvas.width / devicePixelRatioValue;
-      const drawHeight = canvas.height / devicePixelRatioValue;
+      // Between ticks nothing moves, so freeze the heads on their vertex.
+      const interpolationAlpha =
+        gameState === 'playing'
+          ? Math.min(1, accumulatedMilliseconds.current / logicStepMilliseconds)
+          : 1;
 
-      drawGrid(context, drawWidth, drawHeight, gridRef.current);
-      drawLatticeTrails(
-        context,
-        drawWidth,
-        drawHeight,
-        gridRef.current,
-        playerOneLatticeRef.current,
-        playerOneRef.current.color
-      );
-      drawLatticeTrails(
-        context,
-        drawWidth,
-        drawHeight,
-        gridRef.current,
-        playerTwoLatticeRef.current,
-        playerTwoRef.current.color
-      );
-      drawHeadAtLatticeVertex(
-        context,
-        drawWidth,
-        drawHeight,
-        gridRef.current,
-        playerOneRef.current.headLatticeIndex,
-        playerOneRef.current.color
-      );
-      drawHeadAtLatticeVertex(
-        context,
-        drawWidth,
-        drawHeight,
-        gridRef.current,
-        playerTwoRef.current.headLatticeIndex,
-        playerTwoRef.current.color
-      );
-
-      if (!isMobile) drawControlsHint(context);
+      const frame = buildRenderFrame(interpolationAlpha);
+      rendererRef.current?.draw(frame);
+      minimapRendererRef.current?.draw({ ...frame, showControlsHint: false });
 
       requestIdReference.current = requestAnimationFrame(animationLoop);
     }
 
-    resizeCanvasKeepingGridAspect();
-    const onResize = () => resizeCanvasKeepingGridAspect();
+    function onResize(): void {
+      rendererRef.current?.resize();
+      minimapRendererRef.current?.resize();
+    }
+
+    onResize();
     window.addEventListener('resize', onResize);
     requestIdReference.current = requestAnimationFrame(animationLoop);
 
@@ -451,7 +516,7 @@ export function GameCanvas(): JSX.Element {
       window.removeEventListener('resize', onResize);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resizeCanvasKeepingGridAspect, gameState, level, isMobile]);
+  }, [gameState, level, isMobile, renderMode]);
 
   // Inputs
   useEffect(() => {
@@ -460,8 +525,7 @@ export function GameCanvas(): JSX.Element {
         gameState === 'menu' &&
         (event.key === 'Enter' || event.key === ' ')
       ) {
-        setGameState('playing');
-        resetRound();
+        startRunInMode(renderMode);
         return;
       }
       // Game keys only apply mid-round; otherwise typing in overlay inputs
@@ -476,7 +540,7 @@ export function GameCanvas(): JSX.Element {
     window.addEventListener('keydown', keydownHandler);
     return () => window.removeEventListener('keydown', keydownHandler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState]);
+  }, [gameState, renderMode, startRunInMode]);
 
   // RoundEnd actions
   /**
@@ -522,6 +586,12 @@ export function GameCanvas(): JSX.Element {
     startNewRun();
   }
 
+  /** Back to the menu with a clean arena, so the view can be switched. */
+  function handleBackToMenu(): void {
+    setGameState('menu');
+    resetRound();
+  }
+
   function handleTouchDirection(
     direction: 'up' | 'down' | 'left' | 'right'
   ): void {
@@ -533,6 +603,8 @@ export function GameCanvas(): JSX.Element {
   const hearts = '❤'.repeat(Math.max(0, lives));
   const formattedScore = score.toString().padStart(8, '0');
   const formattedHighScore = highScore.toString().padStart(8, '0');
+  const viewLabel = renderMode === '3d' ? '3D Cockpit' : '2D Classic';
+  const shortViewLabel = renderMode === '3d' ? '3D' : '2D';
 
   // Plain JSX (not a nested component) so React doesn't remount the subtree
   // on every GameCanvas render.
@@ -553,6 +625,7 @@ export function GameCanvas(): JSX.Element {
           <span>
             Level: {level}/{LEVEL_COUNT}
           </span>
+          <span>View: {shortViewLabel}</span>
           <span>Mode: {currentDifficulty()}</span>
         </div>
       </div>
@@ -568,6 +641,8 @@ export function GameCanvas(): JSX.Element {
     paragraph?: string;
     primaryLabel?: string;
     onPrimary?: () => void;
+    secondaryLabel?: string;
+    onSecondary?: () => void;
     showLeaderboard: boolean;
     extraContent?: React.ReactNode;
     styleOverride?: React.CSSProperties;
@@ -577,13 +652,17 @@ export function GameCanvas(): JSX.Element {
     if (gameState === 'menu') {
       return {
         title: 'Lightcycle Arena',
-        paragraph: 'Press Enter to start',
-        primaryLabel: 'Start',
-        onPrimary: () => {
-          setGameState('playing');
-          resetRound();
-        },
+        paragraph: 'Choose your view — Move: Arrows/WASD · Reset: R',
+        primaryLabel: '2D Classic',
+        onPrimary: () => startRunInMode('2d'),
+        secondaryLabel: '3D Cockpit',
+        onSecondary: () => startRunInMode('3d'),
         showLeaderboard: true,
+        extraContent: (
+          <p className='menu-hint'>
+            Enter starts in the last view used ({viewLabel})
+          </p>
+        ),
         styleOverride: { background: 'rgba(0,0,0,0.65)' },
       };
     }
@@ -610,6 +689,8 @@ export function GameCanvas(): JSX.Element {
         paragraph: undefined,
         primaryLabel: 'Play Again',
         onPrimary: handleGameOverPrimary,
+        secondaryLabel: 'Menu',
+        onSecondary: handleBackToMenu,
         showLeaderboard: true,
         extraContent: (
           <>
@@ -657,6 +738,8 @@ export function GameCanvas(): JSX.Element {
       paragraph={overlayConfig.paragraph}
       primaryLabel={overlayConfig.primaryLabel}
       onPrimary={overlayConfig.onPrimary}
+      secondaryLabel={overlayConfig.secondaryLabel}
+      onSecondary={overlayConfig.onSecondary}
       showLeaderboard={overlayConfig.showLeaderboard}
       leaderboardEntries={leaderboard}
       maxRows={5}
@@ -665,14 +748,35 @@ export function GameCanvas(): JSX.Element {
     />
   ) : null;
 
+  // The canvas is keyed by view: a canvas that already handed out a 2D context
+  // can never give a WebGL one, so switching views needs a brand new element.
+  const arena = (
+    <div
+      className={
+        renderMode === '3d' ? 'canvas-zone canvas-zone-3d' : 'canvas-zone'
+      }
+    >
+      <canvas
+        key={renderMode}
+        ref={canvasReference}
+        className={renderMode === '3d' ? 'arena-canvas-3d' : undefined}
+      />
+      {renderMode === '3d' && (
+        <canvas
+          ref={minimapCanvasReference}
+          className='minimap-canvas'
+          aria-hidden='true'
+        />
+      )}
+      {stateOverlay}
+    </div>
+  );
+
   // Render (flex layout ya configurado en tu index.css)
   return isMobile ? (
     <div className='mobile-stage'>
       <div className='hud-zone'>{hud}</div>
-      <div className='canvas-zone'>
-        <canvas ref={canvasReference} />
-        {stateOverlay}
-      </div>
+      {arena}
       <div className='controls-zone'>
         <DPadOverlay onInput={handleTouchDirection} onReset={handleManualReset} />
       </div>
@@ -680,10 +784,7 @@ export function GameCanvas(): JSX.Element {
   ) : (
     <div className='game-stage'>
       <div className='hud-zone'>{hud}</div>
-      <div className='canvas-zone'>
-        <canvas ref={canvasReference} />
-        {stateOverlay}
-      </div>
+      {arena}
     </div>
   );
 }

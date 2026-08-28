@@ -58,6 +58,30 @@ body {
   image-rendering: pixelated;
 }
 
+/* The 3D view fills its zone and anchors the minimap + overlay inside it. */
+.canvas-zone-3d {
+  position: relative;
+}
+
+.canvas-zone .arena-canvas-3d {
+  /* WebGL output is already smooth; pixelating it just makes it look cheap. */
+  image-rendering: auto;
+}
+
+.canvas-zone .minimap-canvas {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 176px;
+  height: 132px;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0.85;
+  border: 1px solid rgba(0, 224, 255, 0.35);
+  border-radius: 6px;
+  box-shadow: 0 0 12px rgba(0, 224, 255, 0.2);
+}
+
 /* ===== Mobile ===== */
 @media (pointer: coarse),
 (max-width: 768px) {
@@ -80,6 +104,13 @@ body {
     min-height: 45vh;
     border-radius: 8px;
     margin: 4px;
+  }
+
+  .canvas-zone .minimap-canvas {
+    right: 6px;
+    bottom: 6px;
+    width: 104px;
+    height: 78px;
   }
 
   .controls-zone {

@@ -23,14 +23,17 @@ const ALL_DIFFICULTIES: AiDifficulty[] = [
 ];
 
 function makePlayer(rowInCells: number, columnInCells: number): Player {
+  const spawnVertex = toLatticeVertexIndices({
+    rowIndexInCells: rowInCells,
+    columnIndexInCells: columnInCells,
+  });
+
   return {
     id: 2,
     name: "Bot",
     color: "blue",
-    headLatticeIndex: toLatticeVertexIndices({
-      rowIndexInCells: rowInCells,
-      columnIndexInCells: columnInCells,
-    }),
+    headLatticeIndex: spawnVertex,
+    previousHeadLatticeIndex: spawnVertex,
     direction: "down",
     pendingDirection: "down",
     isAlive: true,

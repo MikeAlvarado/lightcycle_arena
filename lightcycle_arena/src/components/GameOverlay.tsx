@@ -7,6 +7,8 @@ interface GameOverlayProps {
   paragraph?: string;
   primaryLabel?: string;
   onPrimary?: () => void;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
   showLeaderboard?: boolean;
   leaderboardEntries?: HighScoreEntry[];
   maxRows?: number;
@@ -15,14 +17,16 @@ interface GameOverlayProps {
 }
 
 /**
- * Reusable overlay that renders a centered card with title, paragraph, primary button
- * and optionally a leaderboard.
+ * Reusable overlay that renders a centered card with title, paragraph, up to two
+ * action buttons and optionally a leaderboard.
  */
 export function GameOverlay({
   title,
   paragraph,
   primaryLabel,
   onPrimary,
+  secondaryLabel,
+  onSecondary,
   showLeaderboard = false,
   leaderboardEntries = [],
   maxRows = 5,
@@ -42,9 +46,17 @@ export function GameOverlay({
 
       {extraContent}
 
-      {primaryLabel && onPrimary && (
-        <button onClick={onPrimary}>{primaryLabel}</button>
-      )}
+      <div className="overlay-actions">
+        {primaryLabel && onPrimary && (
+          <button onClick={onPrimary}>{primaryLabel}</button>
+        )}
+
+        {secondaryLabel && onSecondary && (
+          <button className="secondary" onClick={onSecondary}>
+            {secondaryLabel}
+          </button>
+        )}
+      </div>
 
       {showLeaderboard && leaderboardEntries.length > 0 && (
         <HighScoresPanel entries={leaderboardEntries} maxRows={maxRows} />
