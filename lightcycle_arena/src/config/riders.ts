@@ -40,7 +40,7 @@ export const BOT_ROSTER: readonly RiderProfile[] = [
   },
   {
     name: "Sark",
-    color: "#ff3355",
+    color: "#ff2f6d",
     difficulty: "Hard",
     tagline: "The Master Control Program is watching.",
   },
