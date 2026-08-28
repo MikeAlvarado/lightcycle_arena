@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
 
-import { botForLevel } from '../config/bots';
+import { botForLevel } from '../config/riders';
 import { LEVEL_COUNT } from '../config/levels';
 import { useLightcycleGame } from '../game/useLightcycleGame';
 import { DPadOverlay } from './DPadOverlay';

@@ -1,11 +1,14 @@
-// src/config/bots.ts
+// src/config/riders.ts
 import type { AiDifficulty } from "../ai/simpleAI";
 
 /**
- * The rider on the other bike. Each level fields a different one, so the ladder
- * has faces on it rather than a number going up.
+ * Whoever is on a bike: you, a program, or the person next to you.
+ *
+ * One shape for all of them means a rider's name and colour are stated once
+ * and picked up everywhere they show — the wall, the bike, the name tag over
+ * it, the HUD line and the crash report.
  */
-export interface BotProfile {
+export interface RiderProfile {
   name: string;
   /** Trail and bike colour. Kept clear of the player's gold on every rung. */
   color: string;
@@ -14,7 +17,15 @@ export interface BotProfile {
   tagline: string;
 }
 
-export const BOT_ROSTER: readonly BotProfile[] = [
+/** The rider you ride. Gold, and the only one that never changes. */
+export const PLAYER_PROFILE: RiderProfile = {
+  name: "Yellow",
+  color: "#ffc23a",
+  difficulty: "Easy",
+  tagline: "",
+};
+
+export const BOT_ROSTER: readonly RiderProfile[] = [
   {
     name: "Jarvis",
     color: "#31d7ff",
@@ -35,26 +46,26 @@ export const BOT_ROSTER: readonly BotProfile[] = [
   },
   {
     name: "Rinzler",
-    color: "#ff4d1a",
+    color: "#ff3b1f",
     difficulty: "VeryHard",
     tagline: "No words. Just the line.",
   },
   {
     name: "CLU",
-    color: "#ff8a00",
+    color: "#ff0f2e",
     difficulty: "Insane",
     tagline: "I made this world. You are a flaw in it.",
   },
 ];
 
 /** The rider fielded at a given level, clamped to the roster. */
-export function botForLevel(level: number): BotProfile {
+export function botForLevel(level: number): RiderProfile {
   const clamped = Math.max(1, Math.min(level, BOT_ROSTER.length));
   return BOT_ROSTER[clamped - 1];
 }
 
 /** Player two in a versus match: a person, not a program. */
-export const HUMAN_RIVAL: BotProfile = {
+export const HUMAN_RIVAL: RiderProfile = {
   name: "Cyan",
   color: "#31d7ff",
   difficulty: "Normal",
