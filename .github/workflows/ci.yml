@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: lightcycle_arena/lightcycle_arena
+        working-directory: lightcycle_arena
     steps:
       - uses: actions/checkout@v4
 
@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: lightcycle_arena/lightcycle_arena/package-lock.json
+          cache-dependency-path: lightcycle_arena/package-lock.json
 
       - name: Install dependencies
         run: npm ci
