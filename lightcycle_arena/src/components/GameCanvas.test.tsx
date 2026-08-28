@@ -114,6 +114,44 @@ describe("GameCanvas", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("pauses on Escape too, which is where a hand already is", () => {
+    render(<GameCanvas />);
+    fireEvent.click(screen.getByRole("button", { name: "2D Classic" }));
+
+    runFrames(300);
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("Paused");
+  });
+
+  it("cuts the wall on Space and puts it back", () => {
+    render(<GameCanvas />);
+    fireEvent.click(screen.getByRole("button", { name: /Jet Wall: Off/ }));
+    fireEvent.click(screen.getByRole("button", { name: "2D Classic" }));
+    runFrames(300);
+
+    expect(screen.getByRole("meter", { name: "Jet wall power" })).toBeInTheDocument();
+    expect(screen.getByText("Jet wall")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: " " });
+    expect(screen.getByText("Wall off")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: " " });
+    expect(screen.getByText("Jet wall")).toBeInTheDocument();
+  });
+
+  it("keeps the jet wall out of the way when the rule is off", () => {
+    render(<GameCanvas />);
+    fireEvent.click(screen.getByRole("button", { name: "2D Classic" }));
+    runFrames(300);
+
+    expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+
+    // Space is the menu's start key, not a game key, so it must do nothing here.
+    fireEvent.keyDown(window, { key: " " });
+    expect(screen.queryByText("Wall off")).not.toBeInTheDocument();
+  });
+
   it("pauses itself when the tab goes away", () => {
     render(<GameCanvas />);
     fireEvent.click(screen.getByRole("button", { name: "2D Classic" }));

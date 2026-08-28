@@ -34,6 +34,31 @@ export function GameCanvas(): JSX.Element {
     actions.saveScoreAs(nameDraft);
   }
 
+  const wallMeter =
+    game.jetWallEnabled && state.gameState !== 'menu' ? (
+      <div className='wall-meter'>
+        <span className='wall-meter-label'>
+          {game.isPlayerCuttingWall ? 'Wall off' : 'Jet wall'}
+        </span>
+        <span
+          className='wall-meter-track'
+          role='meter'
+          aria-label='Jet wall power'
+          aria-valuenow={game.wallEnergyPercent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <span
+            className='wall-meter-fill'
+            style={{
+              width: `${game.wallEnergyPercent}%`,
+              background: game.isPlayerCuttingWall ? '#ff5a3c' : game.playerColor,
+            }}
+          />
+        </span>
+      </div>
+    ) : null;
+
   const hud = (
     <div className='game-ui'>
       <h1 className='game-title'>Lightcycle Arena</h1>
@@ -54,6 +79,7 @@ export function GameCanvas(): JSX.Element {
             <span>View: {shortViewLabel}</span>
             <span>P2: WASD</span>
           </div>
+          {wallMeter}
         </div>
       ) : (
         <div className='hud-container'>
@@ -72,6 +98,7 @@ export function GameCanvas(): JSX.Element {
             <span>View: {shortViewLabel}</span>
             <span style={{ color: opponent.color }}>vs {opponent.name}</span>
           </div>
+          {wallMeter}
         </div>
       )}
     </div>
@@ -84,6 +111,13 @@ export function GameCanvas(): JSX.Element {
       </button>
       <button type='button' onClick={actions.toggleGlow} aria-pressed={game.glowEnabled}>
         Glow: {game.glowEnabled ? 'On' : 'Off'}
+      </button>
+      <button
+        type='button'
+        onClick={actions.toggleJetWall}
+        aria-pressed={game.jetWallEnabled}
+      >
+        Jet Wall: {game.jetWallEnabled ? 'On' : 'Off'}
       </button>
     </div>
   );
@@ -134,12 +168,18 @@ export function GameCanvas(): JSX.Element {
       return {
         title: 'Lightcycle Arena',
         paragraph:
-          '2D Classic: arrows steer by compass · 3D Cockpit: left/right turn the bike · R resets · P pauses',
+          '2D Classic: arrows steer by compass · 3D Cockpit: left/right turn the bike · R resets · Esc pauses',
         actions: menuActions,
         showLeaderboard: true,
         extraContent: (
           <>
             {preferenceToggles}
+            {game.jetWallEnabled && (
+              <p className='menu-hint'>
+                Jet wall: Space switches your wall off and leaves a gap in it.
+                So does theirs — and they know how to use it.
+              </p>
+            )}
             <p className='menu-hint'>
               Enter starts a solo run in the last view used ({viewLabel})
             </p>
@@ -282,6 +322,8 @@ export function GameCanvas(): JSX.Element {
           onInput={actions.steer}
           onReset={actions.restartRound}
           steeringMode={game.steeringMode}
+          onCut={game.jetWallEnabled ? actions.cutWall : undefined}
+          isCutting={game.isPlayerCuttingWall}
         />
       </div>
     </div>

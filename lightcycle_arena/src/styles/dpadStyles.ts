@@ -103,3 +103,25 @@ export const turnButtonStyle: CSSProperties = {
   WebkitTapHighlightColor: "transparent",
   touchAction: "none",
 };
+
+/**
+ * The jet wall switch, parked out of the way of the steering so a thumb
+ * reaching for it can't turn the bike by accident.
+ */
+export const cutButtonStyle: CSSProperties = {
+  position: "absolute",
+  top: 10,
+  right: 12,
+  padding: "10px 16px",
+  borderRadius: 999,
+  border: "1px solid #3a3a3a",
+  background: "#1f1f1f",
+  color: "#f0f4ff",
+  fontWeight: 700,
+  fontSize: 13,
+  letterSpacing: 0.5,
+  textTransform: "uppercase",
+  userSelect: "none",
+  WebkitTapHighlightColor: "transparent",
+  touchAction: "none",
+};

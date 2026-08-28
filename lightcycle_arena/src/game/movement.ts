@@ -1,7 +1,13 @@
 // src/game/movement.ts
 import type { GridConfig } from "../utils/gridConfig";
 import type { Direction, LatticeIndex, LatticeMatrix } from "../utils/latticeHelpers";
-import { isInsideLattice, isOccupied, occupy, stepOnLattice } from "../utils/latticeHelpers";
+import {
+  isInsideLattice,
+  isOccupied,
+  occupy,
+  setOccupancy,
+  stepOnLattice,
+} from "../utils/latticeHelpers";
 
 /** Why a rider went down, used for the round-end message. */
 export type CrashCause = "arena" | "ownTrail" | "opponentTrail" | "headOn";
@@ -11,6 +17,15 @@ export interface MovingPlayer {
   direction: Direction;
   isAlive: boolean;
 }
+
+/**
+ * How fast the wall drains and refills, per tick.
+ *
+ * Two and a half seconds of cutting, seven to earn it back: long enough to get
+ * out of somewhere, short enough that it can't be left off.
+ */
+export const WALL_DRAIN_PER_TICK = 1 / 25;
+export const WALL_RECHARGE_PER_TICK = 1 / 70;
 
 export interface ResolvedMove {
   traversedEdge: LatticeIndex;
@@ -126,6 +141,8 @@ export function resolveTickMoves(
 export interface RiderState extends MovingPlayer {
   previousHeadLatticeIndex: LatticeIndex;
   ticksSurvived: number;
+  isLayingWall: boolean;
+  wallEnergy: number;
 }
 
 /**
@@ -159,20 +176,40 @@ export function advanceRiders(
       return;
     }
 
-    occupy(occupancy, fromVertex);
-    occupy(occupancy, move.traversedEdge);
-    // The head blocks as well: without it another rider could ride straight
+    if (rider.isLayingWall) {
+      occupy(occupancy, fromVertex);
+      occupy(occupancy, move.traversedEdge);
+
+      // The trail is only what gets drawn, so it holds the wall, not the head.
+      occupy(trails[riderIndex], fromVertex);
+      occupy(trails[riderIndex], move.traversedEdge);
+    } else if (!trails.some((trail) => isOccupied(trail, fromVertex))) {
+      // With the wall off there is nothing to leave behind, so the mark that
+      // was only ever standing in for the bike goes with it — unless somebody's
+      // wall is already there, in which case it was never ours to clear.
+      setOccupancy(occupancy, fromVertex, false);
+    }
+
+    // The head blocks either way: without it another rider could ride straight
     // through the vertex this one is standing on.
     occupy(occupancy, move.destination);
-
-    // The trail is only what gets drawn, so it holds the wall, not the head.
-    occupy(trails[riderIndex], fromVertex);
-    occupy(trails[riderIndex], move.traversedEdge);
 
     rider.previousHeadLatticeIndex = fromVertex;
     rider.headLatticeIndex = move.destination;
     rider.ticksSurvived += 1;
   });
+
+  for (const rider of riders) {
+    if (!rider.isAlive) continue;
+
+    if (rider.isLayingWall) {
+      rider.wallEnergy = Math.min(1, rider.wallEnergy + WALL_RECHARGE_PER_TICK);
+    } else {
+      rider.wallEnergy = Math.max(0, rider.wallEnergy - WALL_DRAIN_PER_TICK);
+      // Out of power, the wall comes back on by itself.
+      if (rider.wallEnergy <= 0) rider.isLayingWall = true;
+    }
+  }
 
   return crashes;
 }

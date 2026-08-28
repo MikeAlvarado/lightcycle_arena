@@ -1,5 +1,10 @@
 // src/game/movement.test.ts
-import { advanceRiders, describeCrash, resolveTickMoves } from "./movement";
+import {
+  WALL_DRAIN_PER_TICK,
+  advanceRiders,
+  describeCrash,
+  resolveTickMoves,
+} from "./movement";
 import type { MovingPlayer, RiderState } from "./movement";
 import {
   createEmptyLattice,
@@ -29,6 +34,22 @@ function rider(rowInCells: number, columnInCells: number, direction: Direction):
     }),
     direction,
     isAlive: true,
+  };
+}
+
+/** A rider as advanceRiders wants it: laying wall, tank full. */
+function ridingState(
+  rowInCells: number,
+  columnInCells: number,
+  direction: Direction
+): RiderState {
+  const base = rider(rowInCells, columnInCells, direction);
+  return {
+    ...base,
+    previousHeadLatticeIndex: base.headLatticeIndex,
+    ticksSurvived: 0,
+    isLayingWall: true,
+    wallEnergy: 1,
   };
 }
 
@@ -157,8 +178,8 @@ describe("describeCrash", () => {
 describe("advanceRiders", () => {
   function makeRiders(): RiderState[] {
     return [
-      { ...rider(5, 4, "right"), previousHeadLatticeIndex: rider(5, 4, "right").headLatticeIndex, ticksSurvived: 0 },
-      { ...rider(1, 1, "down"), previousHeadLatticeIndex: rider(1, 1, "down").headLatticeIndex, ticksSurvived: 0 },
+      ridingState(5, 4, "right"),
+      ridingState(1, 1, "down"),
     ];
   }
 
@@ -198,8 +219,8 @@ describe("advanceRiders", () => {
   it("never lets two riders finish a tick on the same vertex", () => {
     const board = makeBoard();
     const riders: RiderState[] = [
-      { ...rider(5, 4, "right"), previousHeadLatticeIndex: rider(5, 4, "right").headLatticeIndex, ticksSurvived: 0 },
-      { ...rider(5, 6, "left"), previousHeadLatticeIndex: rider(5, 6, "left").headLatticeIndex, ticksSurvived: 0 },
+      ridingState(5, 4, "right"),
+      ridingState(5, 6, "left"),
     ];
 
     // Ride them at each other until somebody goes down.
@@ -220,7 +241,7 @@ describe("advanceRiders", () => {
   it("leaves a downed rider where it fell", () => {
     const board = makeBoard();
     const riders: RiderState[] = [
-      { ...rider(0, 5, "up"), previousHeadLatticeIndex: rider(0, 5, "up").headLatticeIndex, ticksSurvived: 0 },
+      ridingState(0, 5, "up"),
     ];
     const restingPlace = riders[0].headLatticeIndex;
 
@@ -230,5 +251,110 @@ describe("advanceRiders", () => {
 
     // A rider that is out stays out and stops being resolved.
     expect(advanceRiders(riders, GRID, board.occupancy, board.trails)).toEqual([null]);
+  });
+});
+
+describe("cutting the wall", () => {
+  function ride(riders: RiderState[], board: ReturnType<typeof makeBoard>, ticks: number) {
+    for (let tick = 0; tick < ticks; tick += 1) {
+      advanceRiders(riders, GRID, board.occupancy, board.trails);
+    }
+  }
+
+  it("leaves nothing behind while the wall is off", () => {
+    const board = makeBoard();
+    const rider = ridingState(5, 5, "right");
+    rider.isLayingWall = false;
+
+    const startVertex = rider.headLatticeIndex;
+    ride([rider], board, 3);
+
+    const crossedEdge = {
+      rowIndexInLattice: startVertex.rowIndexInLattice,
+      columnIndexInLattice: startVertex.columnIndexInLattice + 1,
+    };
+    expect(isOccupied(board.trails[0], crossedEdge)).toBe(false);
+    expect(isOccupied(board.occupancy, crossedEdge)).toBe(false);
+    // Nor the vertices it passed over, so the gap is a gap both ways.
+    expect(isOccupied(board.occupancy, startVertex)).toBe(false);
+  });
+
+  it("keeps the wall it had already laid", () => {
+    // Switching off stops you leaving more; it does not undo what is there.
+    const board = makeBoard();
+    const rider = ridingState(5, 5, "right");
+    const startVertex = rider.headLatticeIndex;
+
+    ride([rider], board, 2);
+    rider.isLayingWall = false;
+    ride([rider], board, 2);
+
+    expect(isOccupied(board.occupancy, startVertex)).toBe(true);
+    expect(isOccupied(board.trails[0], startVertex)).toBe(true);
+  });
+
+  it("lets a rider back through the gap it left", () => {
+    const board = makeBoard();
+    const rider = ridingState(5, 5, "right");
+    rider.isLayingWall = false;
+    ride([rider], board, 3);
+
+    // Turn around the long way and ride back over its own path.
+    rider.direction = "down";
+    ride([rider], board, 1);
+    rider.direction = "left";
+    ride([rider], board, 1);
+    rider.direction = "up";
+    const crashes = advanceRiders([rider], GRID, board.occupancy, board.trails);
+
+    expect(crashes[0]).toBeNull();
+    expect(rider.isAlive).toBe(true);
+  });
+
+  // Draining the tank takes more ticks than the little test arena has room for.
+  const LONG_GRID = { rows: 60, columns: 60 };
+
+  function longRun(): { rider: RiderState; board: ReturnType<typeof makeBoard> } {
+    return {
+      rider: ridingState(30, 2, "right"),
+      board: {
+        occupancy: createEmptyLattice(LONG_GRID.rows, LONG_GRID.columns),
+        trails: [createEmptyLattice(LONG_GRID.rows, LONG_GRID.columns)],
+      },
+    };
+  }
+
+  it("drains while the wall is off and refills while it is on", () => {
+    const { rider, board } = longRun();
+    rider.isLayingWall = false;
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      advanceRiders([rider], LONG_GRID, board.occupancy, board.trails);
+    }
+    const afterCutting = rider.wallEnergy;
+    expect(afterCutting).toBeLessThan(1);
+
+    rider.isLayingWall = true;
+    for (let tick = 0; tick < 5; tick += 1) {
+      advanceRiders([rider], LONG_GRID, board.occupancy, board.trails);
+    }
+
+    expect(rider.isAlive).toBe(true);
+    expect(rider.wallEnergy).toBeGreaterThan(afterCutting);
+  });
+
+  it("switches the wall back on when the power runs out", () => {
+    const { rider, board } = longRun();
+    rider.isLayingWall = false;
+
+    // Long enough to empty the tank whatever the drain rate is.
+    for (let tick = 0; tick < Math.ceil(1 / WALL_DRAIN_PER_TICK) + 1; tick += 1) {
+      advanceRiders([rider], LONG_GRID, board.occupancy, board.trails);
+    }
+
+    expect(rider.isAlive).toBe(true);
+    expect(rider.isLayingWall).toBe(true);
+    // Back on, and already starting to earn the next cut back.
+    expect(rider.wallEnergy).toBeLessThan(0.1);
   });
 });

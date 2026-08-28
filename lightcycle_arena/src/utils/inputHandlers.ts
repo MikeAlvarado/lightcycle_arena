@@ -12,6 +12,9 @@ export interface KeyboardControls {
   playerRef: RefObject<PlayerForInput>;
   scheme: KeyScheme;
   steeringMode: SteeringMode;
+  /** Key this rider cuts their wall with, if the mode is being played. */
+  cutKey?: string;
+  onCut?: () => void;
 }
 
 const ARROW_INTENTS: Record<string, SteerIntent> = {
@@ -53,6 +56,12 @@ export function handleKeyDown(
   let handled = false;
 
   for (const control of controls) {
+    if (control.cutKey && event.key === control.cutKey) {
+      control.onCut?.();
+      handled = true;
+      continue;
+    }
+
     const intent = intentForKey(event.key, control.scheme);
     if (!intent) continue;
 
@@ -73,6 +82,7 @@ export function handleKeyDown(
         break;
       case "p":
       case "P":
+      case "Escape":
         onTogglePause?.();
         handled = true;
         break;

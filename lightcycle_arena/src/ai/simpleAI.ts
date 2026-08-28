@@ -241,6 +241,36 @@ function isSameVertex(first: LatticeIndex, second: LatticeIndex): boolean {
   );
 }
 
+/**
+ * Room, in vertices, below which a bot would rather stop sealing the arena —
+ * and the roomier figure it waits for before laying wall again, so it doesn't
+ * flicker the thing on and off at the boundary.
+ */
+const CUT_WALL_BELOW_SPACE = 40;
+const CUT_WALL_UNTIL_SPACE = 75;
+
+/**
+ * Should the bot switch its wall off?
+ *
+ * The wall is what boxes a rider in, and most of the time the rider it boxes in
+ * is the one who laid it. So the bot cuts when it is running out of room and
+ * turns the wall back on once it has some again — spending the tank on getting
+ * out of somewhere rather than on riding around with it off.
+ */
+export function shouldCutWall(view: AiView, isCutting: boolean): boolean {
+  if (view.self.wallEnergy <= 0) return false;
+
+  const roomWanted = isCutting ? CUT_WALL_UNTIL_SPACE : CUT_WALL_BELOW_SPACE;
+  const room = countReachableVertices(
+    view.grid,
+    view.lattice,
+    view.self.headLatticeIndex,
+    roomWanted + 1
+  );
+
+  return room <= roomWanted;
+}
+
 /** Would riding this way land the bot on a square the rival can also take? */
 export function risksHeadOn(view: AiView, direction: Direction): boolean {
   if (!view.opponent) return false;

@@ -7,6 +7,7 @@ const KEY_HIGHSCORE_MAX = "lca.highScoreMax";
 const KEY_RENDER_MODE = "lca.renderMode";
 const KEY_SOUND = "lca.sound";
 const KEY_GLOW = "lca.glow";
+const KEY_JET_WALL = "lca.jetWall";
 
 const SEED_HIGHSCORES: HighScoreEntry[] = [
   { name: "Flynn", score: 50000, dateISO: "1982-06-09T00:00:00.000Z" },
@@ -38,6 +39,14 @@ export function loadSoundEnabled(): boolean {
 }
 export function saveSoundEnabled(enabled: boolean): void {
   try { localStorage.setItem(KEY_SOUND, enabled ? "on" : "off"); } catch { /* not fatal */ }
+}
+
+/** The jet wall rule: off unless the player has switched it on. */
+export function loadJetWallEnabled(): boolean {
+  try { return localStorage.getItem(KEY_JET_WALL) === "on"; } catch { return false; }
+}
+export function saveJetWallEnabled(enabled: boolean): void {
+  try { localStorage.setItem(KEY_JET_WALL, enabled ? "on" : "off"); } catch { /* not fatal */ }
 }
 
 /**

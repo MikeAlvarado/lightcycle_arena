@@ -23,6 +23,13 @@ export interface PlayerState {
   pendingDirection: Direction;    // buffered input
   isAlive: boolean;               // crash flag
   ticksSurvived: number;          // simple score metric
+  /**
+   * Whether the bike is laying its wall. Switching it off leaves a gap you can
+   * ride back through — and so can everybody else.
+   */
+  isLayingWall: boolean;
+  /** 0..1. Drains while the wall is off and refills while it is on. */
+  wallEnergy: number;
 }
 
 /**
@@ -43,4 +50,6 @@ export type PlayerForReset = Pick<
   | "pendingDirection"
   | "isAlive"
   | "ticksSurvived"
+  | "isLayingWall"
+  | "wallEnergy"
 >;

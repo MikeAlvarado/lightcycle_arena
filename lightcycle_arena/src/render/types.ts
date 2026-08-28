@@ -21,6 +21,8 @@ export interface PlayerRenderView {
   previousHeadLatticeIndex: LatticeIndex;
   direction: Direction;
   isAlive: boolean;
+  /** False while the rider is cutting: the wall stops growing behind them. */
+  isLayingWall: boolean;
   trail: LatticeMatrix;
 }
 
