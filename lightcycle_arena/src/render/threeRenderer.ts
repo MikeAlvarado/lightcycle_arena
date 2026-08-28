@@ -3,6 +3,7 @@ import {
   AmbientLight,
   BoxGeometry,
   BufferGeometry,
+  CanvasTexture,
   Color,
   ConeGeometry,
   CylinderGeometry,
@@ -20,6 +21,8 @@ import {
   PlaneGeometry,
   PointLight,
   Scene,
+  Sprite,
+  SpriteMaterial,
   TorusGeometry,
   Vector2,
   Vector3,
@@ -80,6 +83,29 @@ const CAMERA_LOOK_HEIGHT = 1;
 const CAMERA_FOLLOW_RESPONSIVENESS = 11;
 const BIKE_TURN_RESPONSIVENESS = 16;
 
+/** Name tags: the rival's stays up, the player's is a reminder that fades. */
+const LABEL_HEIGHT = 2.1;
+const LABEL_SCREEN_SCALE = 0.055;
+const LABEL_MINIMUM_SCALE = 0.55;
+const LABEL_MAXIMUM_SCALE = 2.6;
+const LABEL_BRIEF_SECONDS = 3.2;
+const LABEL_FADE_SECONDS = 0.8;
+
+/** Lean into the turn: degrees of roll per radian-per-second of yaw. */
+const BIKE_ROLL_PER_TURN_RATE = 0.22;
+const BIKE_MAXIMUM_ROLL = 0.42;
+const BIKE_ROLL_RESPONSIVENESS = 9;
+
+/** Extra vertical FOV at the fastest level, which reads as speed. */
+const FOV_SPEED_KICK_DEGREES = 5;
+
+/** Frame budget before the 3D view starts trading resolution for smoothness. */
+const FRAME_BUDGET_MILLISECONDS = 21;
+const FRAME_COMFORT_MILLISECONDS = 13;
+const RESOLUTION_STEP = 0.25;
+const MINIMUM_PIXEL_RATIO = 0.75;
+const RESOLUTION_REVIEW_SECONDS = 1.5;
+
 const DEBRIS_PER_CRASH = 18;
 const DEBRIS_GRAVITY = 11;
 const CAMERA_SHAKE_ON_CRASH = 0.55;
@@ -108,11 +134,19 @@ interface PlayerVisual {
   bike: Group;
   panelMaterial: MeshStandardMaterial;
   rimMaterial: MeshStandardMaterial;
+  glowMaterial: MeshStandardMaterial;
+  bikeLight: PointLight;
+  label: Sprite;
+  labelMaterial: SpriteMaterial;
+  /** What the tag currently says, so it is only redrawn when it changes. */
+  labelText: string;
+  colorHex: string;
   trailMeshes: Mesh[];
   activeRun: (TrailRunState & { panel: Mesh; rim: Mesh }) | null;
   /** Set when the wall meshes no longer match the lattice and must be redone. */
   needsTrailRebuild: boolean;
   wasAlive: boolean;
+  roll: number;
 }
 
 /**
@@ -186,6 +220,18 @@ export function createThreeRenderer(
   buildLighting();
   buildFloor();
   buildArenaWalls();
+
+  // Motion the player never asked for is the first thing to drop when they
+  // have said they would rather not have it.
+  const prefersReducedMotion =
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+
+  const maximumPixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  let currentPixelRatio = maximumPixelRatio;
+  let frameTimeAverage = 16;
+  let secondsSinceResolutionReview = 0;
+  let roundElapsedSeconds = 0;
+  let appliedFovKick = -1;
 
   const playerVisuals: PlayerVisual[] = [];
   const debris: DebrisPiece[] = [];
@@ -297,12 +343,67 @@ export function createThreeRenderer(
   }
 
   /**
+   * Draw a name onto a canvas and hand it back as a sprite texture. Sprites
+   * always face the camera, which is exactly what a name tag wants to do.
+   */
+  function createLabelTexture(text: string, color: string): CanvasTexture {
+    const scale = 2; // drawn oversized so it stays crisp up close
+    const fontSize = 44 * scale;
+    const canvasElement = document.createElement("canvas");
+    const context = canvasElement.getContext("2d");
+
+    const font = `700 ${fontSize}px ui-monospace, Menlo, Consolas, monospace`;
+    if (context) {
+      context.font = font;
+      canvasElement.width = Math.ceil(context.measureText(text).width) + 40 * scale;
+      canvasElement.height = Math.ceil(fontSize * 1.6);
+
+      // Setting the size clears the canvas, so the font has to be set again.
+      context.font = font;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.shadowColor = color;
+      context.shadowBlur = 18 * scale;
+      context.fillStyle = color;
+      context.fillText(text, canvasElement.width / 2, canvasElement.height / 2);
+      context.shadowBlur = 0;
+      context.fillStyle = "rgba(255,255,255,0.92)";
+      context.fillText(text, canvasElement.width / 2, canvasElement.height / 2);
+    }
+
+    const texture = new CanvasTexture(canvasElement);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  function applyLabel(visual: PlayerVisual, text: string, color: string): void {
+    visual.labelMaterial.map?.dispose();
+    const texture = createLabelTexture(text, color);
+    visual.labelMaterial.map = texture;
+    visual.labelMaterial.needsUpdate = true;
+    visual.labelText = text;
+
+    const image = texture.image as HTMLCanvasElement;
+    const aspect = image.height > 0 ? image.width / image.height : 4;
+    visual.label.userData.aspect = aspect;
+  }
+
+  /**
    * A lightcycle built out of primitives: long tapered hull, canopy over the
    * rider, hub-less wheels lit from the inside. Swapping this for a loaded GLTF
    * later only touches this function.
    */
-  function buildBike(color: Color): Group {
+  interface BikeParts {
+    group: Group;
+    glowMaterial: MeshStandardMaterial;
+    light: PointLight;
+  }
+
+  function buildBike(color: Color): BikeParts {
     const bike = new Group();
+    // Yaw first, then roll about the bike's own length, so leaning into a turn
+    // tips the rider rather than swinging the whole bike sideways.
+    bike.rotation.order = "YZX";
 
     const chassisMaterial = trackMaterial(
       new MeshStandardMaterial({ color: 0x1c2334, roughness: 0.35, metalness: 0.7 })
@@ -375,18 +476,36 @@ export function createThreeRenderer(
     bikeLight.position.set(0, 0.9, 0);
     bike.add(bikeLight);
 
-    return bike;
+    return { group: bike, glowMaterial, light: bikeLight };
   }
 
-  function ensurePlayerVisuals(players: PlayerRenderView[]): void {
+  /**
+   * Make sure there is a bike, a wall colour and a name tag for every rider —
+   * and that they still match. Each level fields a different rival, so colour
+   * and name are kept in step rather than fixed at creation.
+   */
+  function syncPlayerVisuals(players: PlayerRenderView[]): void {
     while (playerVisuals.length < players.length) {
       const index = playerVisuals.length;
       const color = new Color(players[index].color);
-      const bike = buildBike(color);
-      scene.add(bike);
+      const parts = buildBike(color);
+      scene.add(parts.group);
 
-      playerVisuals.push({
-        bike,
+      const labelMaterial = trackMaterial(
+        new SpriteMaterial({ transparent: true, depthTest: false })
+      );
+      const label = new Sprite(labelMaterial);
+      label.renderOrder = 10;
+      scene.add(label);
+
+      const visual: PlayerVisual = {
+        bike: parts.group,
+        glowMaterial: parts.glowMaterial,
+        bikeLight: parts.light,
+        label,
+        labelMaterial,
+        labelText: "",
+        colorHex: players[index].color,
         panelMaterial: trackMaterial(
           new MeshStandardMaterial({
             color: 0x05060a,
@@ -412,8 +531,28 @@ export function createThreeRenderer(
         // context), so the first frame reconstructs what the lattice holds.
         needsTrailRebuild: true,
         wasAlive: true,
-      });
+        roll: 0,
+      };
+
+      applyLabel(visual, players[index].label, players[index].color);
+      playerVisuals.push(visual);
     }
+
+    players.forEach((player, index) => {
+      const visual = playerVisuals[index];
+
+      if (visual.colorHex !== player.color) {
+        const color = new Color(player.color);
+        visual.colorHex = player.color;
+        visual.panelMaterial.emissive.copy(color);
+        visual.rimMaterial.emissive.copy(color);
+        visual.glowMaterial.emissive.copy(color);
+        visual.bikeLight.color.copy(color);
+        applyLabel(visual, player.label, player.color);
+      } else if (visual.labelText !== player.label) {
+        applyLabel(visual, player.label, player.color);
+      }
+    });
   }
 
   function clearTrailMeshes(visual: PlayerVisual): void {
@@ -589,6 +728,8 @@ export function createThreeRenderer(
   }
 
   function spawnCrashDebris(visual: PlayerVisual, x: number, z: number): void {
+    if (prefersReducedMotion) return;
+
     for (let piece = 0; piece < DEBRIS_PER_CRASH; piece += 1) {
       const mesh = new Mesh(unitBoxGeometry, visual.rimMaterial);
       const size = 0.1 + Math.random() * 0.16;
@@ -646,6 +787,82 @@ export function createThreeRenderer(
     debris.length = 0;
   }
 
+  function clamp(value: number, minimum: number, maximum: number): number {
+    return Math.min(maximum, Math.max(minimum, value));
+  }
+
+  /** Your own name is a reminder that fades; theirs is information that stays. */
+  function labelOpacity(player: PlayerRenderView): number {
+    if (!player.isAlive) return 0;
+    if (player.labelMode === "always") return 1;
+
+    const remaining = LABEL_BRIEF_SECONDS - roundElapsedSeconds;
+    if (remaining <= 0) return 0;
+    return Math.min(1, remaining / LABEL_FADE_SECONDS);
+  }
+
+  function updateLabel(
+    visual: PlayerVisual,
+    player: PlayerRenderView,
+    x: number,
+    z: number
+  ): void {
+    const opacity = labelOpacity(player);
+    visual.label.visible = opacity > 0.01;
+    if (!visual.label.visible) return;
+
+    visual.label.position.set(x, LABEL_HEIGHT, z);
+    visual.labelMaterial.opacity = opacity;
+
+    // Scaled by distance so it keeps the same size on screen: a rival across
+    // the arena stays readable without shouting at you up close.
+    const distance = camera.position.distanceTo(visual.label.position);
+    const height = clamp(
+      distance * LABEL_SCREEN_SCALE,
+      LABEL_MINIMUM_SCALE,
+      LABEL_MAXIMUM_SCALE
+    );
+    const aspect = (visual.label.userData.aspect as number | undefined) ?? 4;
+    visual.label.scale.set(height * aspect, height, 1);
+  }
+
+  /** A wider lens at speed. Subtle, and the first thing reduced motion drops. */
+  function updateFieldOfView(speedFactor: number): void {
+    const kick = prefersReducedMotion ? 0 : speedFactor * FOV_SPEED_KICK_DEGREES;
+    const desired = verticalFovForAspect(camera.aspect) + kick;
+
+    if (Math.abs(desired - appliedFovKick) < 0.01) return;
+    appliedFovKick = desired;
+    camera.fov = desired;
+    camera.updateProjectionMatrix();
+  }
+
+  /**
+   * Trade resolution for smoothness when the device can't keep up, and take it
+   * back when it can. Phones vary far too much to pick a number in advance.
+   */
+  function reviewResolution(deltaSeconds: number): void {
+    if (deltaSeconds <= 0) return;
+
+    frameTimeAverage += (deltaSeconds * 1000 - frameTimeAverage) * 0.1;
+    secondsSinceResolutionReview += deltaSeconds;
+    if (secondsSinceResolutionReview < RESOLUTION_REVIEW_SECONDS) return;
+    secondsSinceResolutionReview = 0;
+
+    let nextPixelRatio = currentPixelRatio;
+    if (frameTimeAverage > FRAME_BUDGET_MILLISECONDS) {
+      nextPixelRatio = Math.max(MINIMUM_PIXEL_RATIO, currentPixelRatio - RESOLUTION_STEP);
+    } else if (frameTimeAverage < FRAME_COMFORT_MILLISECONDS) {
+      nextPixelRatio = Math.min(maximumPixelRatio, currentPixelRatio + RESOLUTION_STEP);
+    }
+
+    if (nextPixelRatio === currentPixelRatio) return;
+
+    currentPixelRatio = nextPixelRatio;
+    renderer.setPixelRatio(nextPixelRatio);
+    resize();
+  }
+
   function updateCamera(leadBike: Group, deltaSeconds: number): void {
     const yaw = leadBike.rotation.y;
     const forwardX = -Math.sin(yaw);
@@ -672,7 +889,7 @@ export function createThreeRenderer(
     // Shake is applied on top of the smoothed anchor, never fed back into it,
     // so the camera doesn't wander off while it rattles.
     cameraShake = Math.max(0, cameraShake - CAMERA_SHAKE_DECAY * deltaSeconds * cameraShake);
-    if (cameraShake > 0.001) {
+    if (cameraShake > 0.001 && !prefersReducedMotion) {
       camera.position.set(
         cameraAnchor.x + (Math.random() - 0.5) * cameraShake,
         cameraAnchor.y + (Math.random() - 0.5) * cameraShake,
@@ -706,6 +923,8 @@ export function createThreeRenderer(
 
     renderer.setSize(width, height);
     camera.aspect = width / height;
+    // Forget the applied kick so the new aspect is picked up next frame.
+    appliedFovKick = -1;
     camera.fov = verticalFovForAspect(camera.aspect);
     camera.updateProjectionMatrix();
 
@@ -726,7 +945,9 @@ export function createThreeRenderer(
       : 0;
     lastFrameTimestamp = now;
 
-    ensurePlayerVisuals(frame.players);
+    roundElapsedSeconds += deltaSeconds;
+    syncPlayerVisuals(frame.players);
+    updateFieldOfView(frame.speedFactor);
 
     frame.players.forEach((player, index) => {
       const visual = playerVisuals[index];
@@ -745,13 +966,29 @@ export function createThreeRenderer(
       visual.bike.visible = player.isAlive;
 
       visual.bike.position.set(tipX, 0, tipZ);
-      const yawDelta = shortestAngleDelta(visual.bike.rotation.y, directionToYaw(player.direction));
-      visual.bike.rotation.y += yawDelta * smoothingFactor(BIKE_TURN_RESPONSIVENESS, deltaSeconds);
 
+      const yawDelta = shortestAngleDelta(
+        visual.bike.rotation.y,
+        directionToYaw(player.direction)
+      );
+      const appliedYaw = yawDelta * smoothingFactor(BIKE_TURN_RESPONSIVENESS, deltaSeconds);
+      visual.bike.rotation.y += appliedYaw;
+
+      // Lean into the turn. Riders do it, and it reads at a glance.
+      const turnRate = deltaSeconds > 0 ? appliedYaw / deltaSeconds : 0;
+      const targetRoll = prefersReducedMotion
+        ? 0
+        : clamp(turnRate * BIKE_ROLL_PER_TURN_RATE, -BIKE_MAXIMUM_ROLL, BIKE_MAXIMUM_ROLL);
+      visual.roll += (targetRoll - visual.roll) *
+        smoothingFactor(BIKE_ROLL_RESPONSIVENESS, deltaSeconds);
+      visual.bike.rotation.z = visual.roll;
+
+      updateLabel(visual, player, tipX, tipZ);
       updateTrail(visual, player, cornerX, cornerZ, tipX, tipZ);
     });
 
     updateDebris(deltaSeconds);
+    reviewResolution(deltaSeconds);
     if (playerVisuals.length > 0) updateCamera(playerVisuals[0].bike, deltaSeconds);
 
     if (composer) composer.render(deltaSeconds);
@@ -764,18 +1001,26 @@ export function createThreeRenderer(
       visual.needsTrailRebuild = false;
       visual.wasAlive = true;
       visual.bike.visible = true;
+      visual.roll = 0;
+      visual.bike.rotation.z = 0;
     }
     clearDebris();
     cameraShake = 0;
     shouldSnapCamera = true;
     lastFrameTimestamp = 0;
+    // Name tags come back up for a moment at the start of every round.
+    roundElapsedSeconds = 0;
   }
 
   function dispose(): void {
     canvas.removeEventListener("webglcontextlost", handleContextLost);
     canvas.removeEventListener("webglcontextrestored", handleContextRestored);
 
-    for (const visual of playerVisuals) clearTrailMeshes(visual);
+    for (const visual of playerVisuals) {
+      clearTrailMeshes(visual);
+      visual.labelMaterial.map?.dispose();
+      scene.remove(visual.label);
+    }
     playerVisuals.length = 0;
     clearDebris();
 
