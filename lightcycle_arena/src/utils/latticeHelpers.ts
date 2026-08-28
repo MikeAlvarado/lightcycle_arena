@@ -173,6 +173,15 @@ export function occupy(
   lattice[latticePosition.rowIndexInLattice][latticePosition.columnIndexInLattice] = true;
 }
 
+/** Set a cell either way, so a caller can undo a speculative change. */
+export function setOccupancy(
+  lattice: LatticeMatrix,
+  latticePosition: LatticeIndex,
+  occupied: boolean
+): void {
+  lattice[latticePosition.rowIndexInLattice][latticePosition.columnIndexInLattice] = occupied;
+}
+
 /**
  * Quarter turns as seen from the saddle: the cockpit view steers relative to
  * where the bike is pointing, so it needs these instead of absolute headings.

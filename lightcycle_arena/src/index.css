@@ -42,6 +42,8 @@ body {
 
 .canvas-zone {
   flex: 8;
+  /* Anchors the overlay and the minimap to the arena in both views. */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -56,11 +58,6 @@ body {
   max-width: 100%;
   height: auto;
   image-rendering: pixelated;
-}
-
-/* The 3D view fills its zone and anchors the minimap + overlay inside it. */
-.canvas-zone-3d {
-  position: relative;
 }
 
 .canvas-zone .arena-canvas-3d {

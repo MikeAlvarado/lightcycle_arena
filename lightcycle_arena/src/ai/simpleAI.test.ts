@@ -1,6 +1,7 @@
 // src/ai/simpleAI.test.ts
 import {
   AI_PARAMS,
+  countReachableVertices,
   decideNextDirection,
   getSafeDirections,
   isSafeMove,
@@ -120,5 +121,96 @@ describe("decideNextDirection", () => {
       });
     }
     expect(decideNextDirection(view, "Hard")).toBe(player.direction);
+  });
+});
+
+describe("countReachableVertices", () => {
+  it("stops counting once it has seen enough open floor", () => {
+    const lattice = createEmptyLattice(GRID.rows, GRID.columns);
+    const start = toLatticeVertexIndices({ rowIndexInCells: 5, columnIndexInCells: 5 });
+
+    expect(countReachableVertices(GRID, lattice, start, 50)).toBe(50);
+  });
+
+  it("counts a sealed vertex as the one it is standing on", () => {
+    const lattice = createEmptyLattice(GRID.rows, GRID.columns);
+    const start = toLatticeVertexIndices({ rowIndexInCells: 5, columnIndexInCells: 5 });
+    const { rowIndexInLattice: row, columnIndexInLattice: column } = start;
+
+    for (const [rowOffset, columnOffset] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      occupy(lattice, {
+        rowIndexInLattice: row + rowOffset,
+        columnIndexInLattice: column + columnOffset,
+      });
+    }
+
+    expect(countReachableVertices(GRID, lattice, start, 50)).toBe(1);
+  });
+
+  it("counts a corridor by its length", () => {
+    // Wall off every vertical edge so only a single row can be ridden.
+    const lattice = createEmptyLattice(GRID.rows, GRID.columns);
+    for (let row = 1; row < GRID.rows * 2; row += 2) {
+      for (let column = 0; column <= GRID.columns * 2; column += 2) {
+        occupy(lattice, { rowIndexInLattice: row, columnIndexInLattice: column });
+      }
+    }
+
+    const start = toLatticeVertexIndices({ rowIndexInCells: 5, columnIndexInCells: 5 });
+    // 11 vertices across a 10-cell wide arena.
+    expect(countReachableVertices(GRID, lattice, start, 500)).toBe(GRID.columns + 1);
+  });
+});
+
+describe("difficulty actually changes how the bot thinks", () => {
+  /** Walls the bot in so that only left and right are open. */
+  function makeCorridorView(): AiView {
+    const player = makePlayer(5, 5);
+    const view = makeView(player);
+    const { rowIndexInLattice: row, columnIndexInLattice: column } = player.headLatticeIndex;
+
+    occupy(view.lattice, { rowIndexInLattice: row - 1, columnIndexInLattice: column });
+    occupy(view.lattice, { rowIndexInLattice: row + 1, columnIndexInLattice: column });
+
+    // Turn the vertex two cells to the right into a dead end.
+    occupy(view.lattice, { rowIndexInLattice: row, columnIndexInLattice: column + 3 });
+    occupy(view.lattice, { rowIndexInLattice: row - 1, columnIndexInLattice: column + 2 });
+    occupy(view.lattice, { rowIndexInLattice: row + 1, columnIndexInLattice: column + 2 });
+
+    return view;
+  }
+
+  it("Insane refuses the dead end and takes the open side", () => {
+    const view = makeCorridorView();
+    expect(getSafeDirections(view).sort()).toEqual(["left", "right"]);
+    expect(decideNextDirection(view, "Insane")).toBe("left");
+  });
+
+  it("leaves the board exactly as it found it while thinking", () => {
+    const view = makeCorridorView();
+    const before = JSON.stringify(view.lattice);
+
+    decideNextDirection(view, "Insane");
+
+    expect(JSON.stringify(view.lattice)).toBe(before);
+  });
+
+  it("Easy has no idea the dead end is a dead end", () => {
+    // It only avoids walls, so over many tries it takes both sides.
+    const chosen = new Set<string>();
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      chosen.add(decideNextDirection(makeCorridorView(), "Easy"));
+    }
+
+    expect(chosen.has("right")).toBe(true);
+  });
+
+  it("gets more decisive as the difficulty rises", () => {
+    const difficulties: AiDifficulty[] = ["Easy", "Normal", "Hard", "VeryHard", "Insane"];
+    const lookaheads = difficulties.map((difficulty) => AI_PARAMS[difficulty].lookahead);
+    const mistakes = difficulties.map((difficulty) => AI_PARAMS[difficulty].randomness);
+
+    expect([...lookaheads].sort((a, b) => a - b)).toEqual(lookaheads);
+    expect([...mistakes].sort((a, b) => b - a)).toEqual(mistakes);
   });
 });
