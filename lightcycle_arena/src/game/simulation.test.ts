@@ -3,7 +3,7 @@ import { arenaSetup, runSeries } from "./simulation";
 import type { RiderPolicy } from "./simulation";
 import type { AiDifficulty } from "../ai/simpleAI";
 import { SPAWN_COLUMN_OFFSET_IN_CELLS } from "../config/arena";
-import { BOT_ROSTER } from "../config/bots";
+import { BOT_ROSTER } from "../config/riders";
 import { stepMillisecondsForLevel } from "../config/levels";
 
 /**

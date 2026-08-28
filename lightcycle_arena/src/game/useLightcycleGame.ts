@@ -8,7 +8,7 @@ import type { Direction, LatticeMatrix } from "../utils/latticeHelpers";
 import type { PlayerRenderView, RenderFrame } from "../render/types";
 import type { KeyboardControls } from "../utils/inputHandlers";
 import type { SteeringMode } from "../utils/steering";
-import type { BotProfile } from "../config/bots";
+import type { RiderProfile } from "../config/riders";
 import type { MatchState } from "./matchState";
 
 import {
@@ -17,7 +17,7 @@ import {
   RIVAL_SPAWN,
   RIVAL_START_DIRECTION,
 } from "../config/arena";
-import { HUMAN_RIVAL, botForLevel } from "../config/bots";
+import { HUMAN_RIVAL, PLAYER_PROFILE, botForLevel } from "../config/riders";
 import {
   LEVEL_COUNT,
   stepMillisecondsForLevel,
@@ -52,14 +52,11 @@ import {
   tryInsertHighScore,
 } from "../utils/storage";
 
-const PLAYER_ONE_NAME = "Yellow";
-const PLAYER_ONE_COLOR = "#ffc23a";
-
 /** Everything the UI needs, and nothing it has to know how to compute. */
 export interface LightcycleGame {
   state: MatchState;
   /** Whoever is on the other bike right now. */
-  opponent: BotProfile;
+  opponent: RiderProfile;
   playerLabel: string;
   playerColor: string;
   steeringMode: SteeringMode;
@@ -145,8 +142,8 @@ export function useLightcycleGame(): LightcycleGame {
 
   const playerRef = useRef<Player>({
     id: 1,
-    name: PLAYER_ONE_NAME,
-    color: PLAYER_ONE_COLOR,
+    name: PLAYER_PROFILE.name,
+    color: PLAYER_PROFILE.color,
     headLatticeIndex: toLatticeVertexIndices(PLAYER_SPAWN),
     previousHeadLatticeIndex: toLatticeVertexIndices(PLAYER_SPAWN),
     direction: PLAYER_START_DIRECTION,
@@ -494,8 +491,8 @@ export function useLightcycleGame(): LightcycleGame {
   return {
     state,
     opponent,
-    playerLabel: PLAYER_ONE_NAME,
-    playerColor: PLAYER_ONE_COLOR,
+    playerLabel: PLAYER_PROFILE.name,
+    playerColor: PLAYER_PROFILE.color,
     steeringMode,
     isMobile,
     playerName,

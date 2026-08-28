@@ -1,6 +1,6 @@
 // src/config/levels.ts
 import type { AiDifficulty } from "../ai/simpleAI";
-import { BOT_ROSTER, botForLevel } from "./bots";
+import { BOT_ROSTER, botForLevel } from "./riders";
 
 export const INITIAL_LIVES = 3;
 export const LEVEL_COUNT = BOT_ROSTER.length;
