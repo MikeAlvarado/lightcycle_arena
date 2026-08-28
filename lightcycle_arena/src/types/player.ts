@@ -15,6 +15,7 @@ export interface PlayerIdentity {
  */
 export interface PlayerState {
   headLatticeIndex: LatticeIndex; // current head position (even, even)
+  previousHeadLatticeIndex: LatticeIndex; // vertex left behind this tick (render interpolation)
   direction: Direction;           // applied direction
   pendingDirection: Direction;    // buffered input
   isAlive: boolean;               // crash flag
@@ -33,5 +34,10 @@ export interface Player extends PlayerIdentity, PlayerState {}
 export type PlayerForInput = Pick<Player, "pendingDirection">;
 export type PlayerForReset = Pick<
   Player,
-  "headLatticeIndex" | "direction" | "pendingDirection" | "isAlive" | "ticksSurvived"
+  | "headLatticeIndex"
+  | "previousHeadLatticeIndex"
+  | "direction"
+  | "pendingDirection"
+  | "isAlive"
+  | "ticksSurvived"
 >;
