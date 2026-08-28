@@ -65,6 +65,27 @@ describe("the roster", () => {
     }
   });
 
+  it("changes colour visibly from one rung to the next", () => {
+    // Levels are met one after another, so a rung that looks like the one
+    // before it makes the ladder feel like it isn't going anywhere.
+    const steps = BOT_ROSTER.slice(0, -1).map((rider, index) => {
+      const next = BOT_ROSTER[index + 1];
+      return {
+        step: `${rider.name} -> ${next.name}`,
+        distance: Math.round(colorDistance(rider.color, next.color)),
+      };
+    });
+
+    console.table(steps);
+
+    // A floor rather than a target: the tightest step today is Rinzler to CLU,
+    // deliberately close since both ride for the same side, and the name over
+    // the bike is what actually announces the change.
+    for (const step of steps) {
+      expect(step.distance).toBeGreaterThan(75);
+    }
+  });
+
   it("writes every colour as a six digit hex, which three.js and canvas both read", () => {
     for (const rider of [PLAYER_PROFILE, HUMAN_RIVAL, ...BOT_ROSTER]) {
       expect(rider.color).toMatch(/^#[0-9a-f]{6}$/);
