@@ -20,6 +20,11 @@ interface GameOverlayProps {
   /** Replaces the heading, for the title screen's wordmark. */
   titleSlot?: ReactNode;
   variant?: "panel" | "title";
+  /**
+   * "crash" holds the card back for a beat and darkens the arena first, so the
+   * wreck it is reporting is something you get to watch.
+   */
+  entrance?: "instant" | "crash";
   paragraph?: string;
   actions?: OverlayAction[];
   /** "menu" stacks the actions into a list you read down. */
@@ -41,6 +46,7 @@ export function GameOverlay({
   title,
   titleSlot,
   variant = "panel",
+  entrance = "instant",
   paragraph,
   actions = [],
   actionsLayout = "row",
@@ -70,7 +76,11 @@ export function GameOverlay({
 
   return (
     <div
-      className={`canvas-overlay${variant === "title" ? " is-title" : ""}`}
+      className={
+        `canvas-overlay` +
+        (variant === "title" ? " is-title" : "") +
+        (entrance === "crash" ? " is-crash" : "")
+      }
       style={styleOverride}
       role="dialog"
       aria-modal="true"

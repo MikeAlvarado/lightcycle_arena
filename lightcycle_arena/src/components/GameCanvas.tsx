@@ -178,6 +178,7 @@ export function GameCanvas(): JSX.Element {
     title: string;
     titleSlot?: ReactNode;
     variant?: 'panel' | 'title';
+    entrance?: 'instant' | 'crash';
     paragraph?: string;
     actions: OverlayAction[];
     actionsLayout?: 'row' | 'menu';
@@ -278,6 +279,8 @@ export function GameCanvas(): JSX.Element {
 
       return {
         title,
+        // The round just ended in a wreck; let it play out before the verdict.
+        entrance: 'crash' as const,
         extraContent: (
           <>
             {state.roundMessage && (
@@ -368,6 +371,7 @@ export function GameCanvas(): JSX.Element {
       title={overlayConfig.title}
       titleSlot={overlayConfig.titleSlot}
       variant={overlayConfig.variant}
+      entrance={overlayConfig.entrance}
       paragraph={overlayConfig.paragraph}
       actions={overlayConfig.actions}
       actionsLayout={overlayConfig.actionsLayout}
