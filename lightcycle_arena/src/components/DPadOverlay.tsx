@@ -1,4 +1,5 @@
 import {
+  cutButtonStyle,
   dPadFillWrapperStyle,
   dPadContainerStyle,
   buttonStyle,
@@ -20,12 +21,17 @@ interface DPadOverlayProps {
   onReset: () => void;
   /** Relative steering only needs two keys, so it gets its own layout. */
   steeringMode?: SteeringMode;
+  /** Only passed when the jet wall rule is being played. */
+  onCut?: () => void;
+  isCutting?: boolean;
 }
 
 export function DPadOverlay({
   onInput,
   onReset,
   steeringMode = "absolute",
+  onCut,
+  isCutting = false,
 }: DPadOverlayProps): JSX.Element {
   // pointerdown fires once for both touch and mouse, with no click delay.
   // (React 18 registers touchstart as passive, so preventDefault there is a
@@ -38,6 +44,21 @@ export function DPadOverlay({
     return { onPointerDown: () => onReset() };
   }
 
+  const cutButton = onCut ? (
+    <button
+      style={{
+        ...cutButtonStyle,
+        borderColor: isCutting ? "#ffc23a" : "#3a3a3a",
+        color: isCutting ? "#ffc23a" : "#f0f4ff",
+      }}
+      onPointerDown={onCut}
+      aria-pressed={isCutting}
+      aria-label="Cut the jet wall"
+    >
+      {isCutting ? "Wall off" : "Cut"}
+    </button>
+  ) : null;
+
   const resetButton = (
     <div style={centerCellContainerStyle}>
       <button style={resetButtonStyle} {...bindReset()} aria-label="Reset round">
@@ -49,6 +70,7 @@ export function DPadOverlay({
   if (steeringMode === "relative") {
     return (
       <div style={dPadFillWrapperStyle} aria-label="On-screen controls">
+        {cutButton}
         <div style={turnPadContainerStyle}>
           <button style={turnButtonStyle} {...bind("left")} aria-label="Turn left">
             <span style={labelStyle}>↰</span>
@@ -66,6 +88,7 @@ export function DPadOverlay({
 
   return (
     <div style={dPadFillWrapperStyle} aria-label="On-screen controls">
+      {cutButton}
       <div style={dPadContainerStyle}>
         <div />
         <button style={buttonStyle} {...bind("up")} aria-label="Move up">

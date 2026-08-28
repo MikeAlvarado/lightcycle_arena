@@ -707,6 +707,25 @@ export function createThreeRenderer(
   ): void {
     if (visual.needsTrailRebuild) rebuildTrailFromLattice(visual, player.trail);
 
+    if (!player.isLayingWall) {
+      // Nothing is being laid, so the wall stops where it stopped. Closing the
+      // run on the corner leaves the gap open behind the bike.
+      const openRun = visual.activeRun;
+      if (openRun) {
+        applySpan(
+          openRun.panel,
+          openRun.rim,
+          openRun.startX,
+          openRun.startZ,
+          cornerX,
+          cornerZ,
+          openRun.direction
+        );
+        visual.activeRun = null;
+      }
+      return;
+    }
+
     const action = decideTrailAction(visual.activeRun, cornerX, cornerZ, player.direction);
     let run = visual.activeRun;
 

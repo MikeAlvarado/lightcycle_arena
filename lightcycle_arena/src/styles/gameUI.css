@@ -124,3 +124,35 @@
   color: #ffe8a0;
   font-weight: 700;
 }
+/* Jet wall power, shown only while that rule is being played. */
+.wall-meter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #9fc4e8;
+}
+
+.wall-meter-label {
+  min-width: 8ch;
+  text-align: left;
+}
+
+.wall-meter-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid #23303f;
+  overflow: hidden;
+}
+
+.wall-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 120ms linear;
+}

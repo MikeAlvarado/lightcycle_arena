@@ -33,7 +33,11 @@ import { advanceRiders, describeCrash } from "./movement";
 import { createInitialMatchState, isRoundRunning, matchReducer } from "./matchState";
 import { handleKeyDown } from "../utils/inputHandlers";
 import { resolveSteering } from "../utils/steering";
-import { decideNextDirection, shouldDecideThisTick } from "../ai/simpleAI";
+import {
+  decideNextDirection,
+  shouldCutWall,
+  shouldDecideThisTick,
+} from "../ai/simpleAI";
 import { getSoundEngine } from "../audio/soundEngine";
 import { loadThreeRenderer } from "../render/loadThreeRenderer";
 import { useArenaRenderers } from "../render/useArenaRenderers";
@@ -41,11 +45,13 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import {
   loadGlowPreference,
   loadHighScoreMax,
+  loadJetWallEnabled,
   loadHighScores,
   loadPlayerName,
   loadRenderMode,
   loadSoundEnabled,
   saveGlowPreference,
+  saveJetWallEnabled,
   savePlayerName,
   saveRenderMode,
   saveSoundEnabled,
@@ -69,6 +75,11 @@ export interface LightcycleGame {
 
   soundEnabled: boolean;
   glowEnabled: boolean;
+  /** The jet wall rule: riders can switch their wall off and leave a gap. */
+  jetWallEnabled: boolean;
+  /** Player one's remaining cut, 0..100, for the meter. */
+  wallEnergyPercent: number;
+  isPlayerCuttingWall: boolean;
 
   canvasRef: RefObject<HTMLCanvasElement | null>;
   minimapCanvasRef: RefObject<HTMLCanvasElement | null>;
@@ -85,6 +96,8 @@ export interface LightcycleGame {
     steer: (direction: Direction) => void;
     toggleSound: () => void;
     toggleGlow: () => void;
+    toggleJetWall: () => void;
+    cutWall: () => void;
     saveScoreAs: (name: string) => void;
     requestNameChange: () => void;
     prefetchCockpit: () => void;
@@ -114,6 +127,11 @@ export function useLightcycleGame(): LightcycleGame {
   const [needsNameForSave, setNeedsNameForSave] = useState<boolean>(false);
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(loadSoundEnabled);
+  const [jetWallEnabled, setJetWallEnabled] = useState<boolean>(loadJetWallEnabled);
+  // Coarse copy of player one's tank, stepped in twentieths so the meter can
+  // live in React without re-rendering the tree on every tick.
+  const [wallEnergyPercent, setWallEnergyPercent] = useState<number>(100);
+  const [isPlayerCuttingWall, setIsPlayerCuttingWall] = useState<boolean>(false);
   // Kept as an opinion, not a value: with nobody's opinion on file the glow
   // follows the device, and follows it again if the device changes its mind.
   const [glowPreference, setGlowPreference] = useState<boolean | null>(loadGlowPreference);
@@ -150,6 +168,8 @@ export function useLightcycleGame(): LightcycleGame {
     pendingDirection: PLAYER_START_DIRECTION,
     isAlive: true,
     ticksSurvived: 0,
+    isLayingWall: true,
+    wallEnergy: 1,
   });
   const rivalRef = useRef<Player>({
     id: 2,
@@ -161,6 +181,8 @@ export function useLightcycleGame(): LightcycleGame {
     pendingDirection: RIVAL_START_DIRECTION,
     isAlive: true,
     ticksSurvived: 0,
+    isLayingWall: true,
+    wallEnergy: 1,
   });
 
   /** Wipe the arena and put both riders back on their marks. */
@@ -176,6 +198,8 @@ export function useLightcycleGame(): LightcycleGame {
     player.pendingDirection = PLAYER_START_DIRECTION;
     player.isAlive = true;
     player.ticksSurvived = 0;
+    player.isLayingWall = true;
+    player.wallEnergy = 1;
 
     const rival = rivalRef.current;
     rival.name = opponent.name;
@@ -186,9 +210,27 @@ export function useLightcycleGame(): LightcycleGame {
     rival.pendingDirection = RIVAL_START_DIRECTION;
     rival.isAlive = true;
     rival.ticksSurvived = 0;
+    rival.isLayingWall = true;
+    rival.wallEnergy = 1;
 
     tickCounterRef.current = 0;
+    // The meter isn't reset here: the first tick of the new round reads it
+    // straight off the rider and corrects it, a tenth of a second later.
   }, [opponent]);
+
+  /**
+   * Switch a rider's wall off, or back on.
+   *
+   * Off is only granted while there is something in the tank; on is always
+   * allowed, so nobody can be stranded with the ability stuck open.
+   */
+  function cutWall(rider: Player): void {
+    if (!jetWallEnabled || !isRoundRunning(state) || !rider.isAlive) return;
+    if (rider.isLayingWall && rider.wallEnergy <= 0) return;
+
+    rider.isLayingWall = !rider.isLayingWall;
+    if (rider.id === playerRef.current.id) setIsPlayerCuttingWall(!rider.isLayingWall);
+  }
 
   /** One logic step. Called by the loop, never during a render. */
   function advanceOneTick(): void {
@@ -208,6 +250,12 @@ export function useLightcycleGame(): LightcycleGame {
 
       if (shouldDecideThisTick(view, opponent.difficulty, tickCounterRef.current)) {
         rival.pendingDirection = decideNextDirection(view, opponent.difficulty);
+      }
+
+      // The bot spends its tank the way a rider would: on getting out of
+      // somewhere, not on riding around with the wall off.
+      if (jetWallEnabled) {
+        rival.isLayingWall = !shouldCutWall(view, !rival.isLayingWall);
       }
     }
 
@@ -244,6 +292,14 @@ export function useLightcycleGame(): LightcycleGame {
     if (tickCounterRef.current % ticksPerSecondAtLevel(state.level) === 0) {
       dispatch({ type: "awardSurvival" });
     }
+
+    if (jetWallEnabled) {
+      setWallEnergyPercent((shown) => {
+        const actual = Math.round(player.wallEnergy * 20) * 5;
+        return actual === shown ? shown : actual;
+      });
+      setIsPlayerCuttingWall(!player.isLayingWall);
+    }
   }
 
   function viewFor(
@@ -255,6 +311,7 @@ export function useLightcycleGame(): LightcycleGame {
       color: rider.color,
       label: rider.name,
       labelMode,
+      isLayingWall: rider.isLayingWall,
       headLatticeIndex: rider.headLatticeIndex,
       previousHeadLatticeIndex: rider.previousHeadLatticeIndex,
       direction: rider.direction,
@@ -264,12 +321,17 @@ export function useLightcycleGame(): LightcycleGame {
   }
 
   function buildFrame(interpolationAlpha: number): RenderFrame {
+    const cutHint = jetWallEnabled
+      ? state.matchMode === "versus"
+        ? " | Cut: Space / Shift"
+        : " | Cut: Space"
+      : "";
     const controlsHint =
       isMobile || state.renderMode !== "2d"
         ? null
         : state.matchMode === "versus"
-          ? "P1: Arrows | P2: WASD | Reset: R | Pause: P"
-          : "Move: Arrows/WASD | Reset: R | Pause: P";
+          ? `P1: Arrows | P2: WASD${cutHint} | Reset: R | Pause: Esc`
+          : `Move: Arrows/WASD${cutHint} | Reset: R | Pause: Esc`;
 
     return {
       grid: GRID_CONFIG,
@@ -376,6 +438,8 @@ export function useLightcycleGame(): LightcycleGame {
         playerRef: playerRef as RefObject<PlayerForInput>,
         scheme: state.matchMode === "versus" ? "arrows" : "both",
         steeringMode,
+        cutKey: jetWallEnabled ? " " : undefined,
+        onCut: () => cutWall(playerRef.current),
       },
     ];
 
@@ -384,6 +448,8 @@ export function useLightcycleGame(): LightcycleGame {
         playerRef: rivalRef as RefObject<PlayerForInput>,
         scheme: "wasd",
         steeringMode: "absolute",
+        cutKey: jetWallEnabled ? "Shift" : undefined,
+        onCut: () => cutWall(rivalRef.current),
       });
     }
 
@@ -413,7 +479,16 @@ export function useLightcycleGame(): LightcycleGame {
 
     window.addEventListener("keydown", keydownHandler);
     return () => window.removeEventListener("keydown", keydownHandler);
-  }, [state.gameState, state.isPaused, state.matchMode, state.renderMode, steeringMode, sound]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    state.gameState,
+    state.isPaused,
+    state.matchMode,
+    state.renderMode,
+    steeringMode,
+    jetWallEnabled,
+    sound,
+  ]);
 
   const startRun = useCallback((matchMode: MatchMode, renderMode: RenderMode): void => {
     saveRenderMode(renderMode);
@@ -467,6 +542,14 @@ export function useLightcycleGame(): LightcycleGame {
       saveGlowPreference(next);
     },
 
+    toggleJetWall: (): void => {
+      const next = !jetWallEnabled;
+      setJetWallEnabled(next);
+      saveJetWallEnabled(next);
+    },
+
+    cutWall: (): void => cutWall(playerRef.current),
+
     saveScoreAs: (name: string): void => {
       const trimmedName = name.trim().slice(0, 20);
       if (!trimmedName) return;
@@ -495,6 +578,9 @@ export function useLightcycleGame(): LightcycleGame {
     needsNameForSave,
     soundEnabled,
     glowEnabled,
+    jetWallEnabled,
+    wallEnergyPercent,
+    isPlayerCuttingWall,
     canvasRef: renderers.canvasRef,
     minimapCanvasRef: renderers.minimapCanvasRef,
     canvasKey: renderers.canvasKey,

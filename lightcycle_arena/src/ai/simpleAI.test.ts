@@ -39,6 +39,8 @@ function makePlayer(rowInCells: number, columnInCells: number): Player {
     pendingDirection: "down",
     isAlive: true,
     ticksSurvived: 0,
+    isLayingWall: true,
+    wallEnergy: 1,
   };
 }
 

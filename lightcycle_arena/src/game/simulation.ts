@@ -63,6 +63,8 @@ function makeRider(
     pendingDirection: direction,
     isAlive: true,
     ticksSurvived: 0,
+    isLayingWall: true,
+    wallEnergy: 1,
   };
 }
 
