@@ -41,6 +41,8 @@ import {
 
 // Entrada / renderizado
 import { handleKeyDown as handleKeyDownBase } from '../utils/inputHandlers';
+import type { SteeringMode } from '../utils/steering';
+import { resolveSteering } from '../utils/steering';
 import { createCanvas2DRenderer } from '../render/canvas2dRenderer';
 import { createThreeRenderer } from '../render/threeRenderer';
 
@@ -135,7 +137,7 @@ export function GameCanvas(): JSX.Element {
   const playerOneRef = useRef<Player>({
     id: 1,
     name: 'Player One',
-    color: 'yellow',
+    color: '#ffc23a',
     headLatticeIndex: toLatticeVertexIndices(playerSpawn),
     previousHeadLatticeIndex: toLatticeVertexIndices(playerSpawn),
     direction: 'up',
@@ -146,7 +148,7 @@ export function GameCanvas(): JSX.Element {
   const playerTwoRef = useRef<Player>({
     id: 2,
     name: 'Bot',
-    color: 'blue',
+    color: '#31d7ff',
     headLatticeIndex: toLatticeVertexIndices(botSpawn),
     previousHeadLatticeIndex: toLatticeVertexIndices(botSpawn),
     direction: 'down',
@@ -157,6 +159,13 @@ export function GameCanvas(): JSX.Element {
 
   // Difficulty by level
   const currentDifficulty = (): AiDifficulty => difficultyForLevel(level);
+
+  /**
+   * Looking down at the board, a key press is a compass heading. Riding behind
+   * the bike it has to be a turn instead, or steering inverts every time the
+   * bike faces south.
+   */
+  const steeringMode: SteeringMode = renderMode === '3d' ? 'relative' : 'absolute';
 
   // Round reset (keeps lives/level/score)
   const resetRound = useCallback((): void => {
@@ -412,7 +421,10 @@ export function GameCanvas(): JSX.Element {
         },
       ],
       interpolationAlpha,
-      showControlsHint: !isMobile && renderMode === '2d',
+      controlsHint:
+        isMobile || renderMode !== '2d'
+          ? null
+          : 'Controls — Move: Arrows/WASD | Reset: R',
     };
   }
 
@@ -497,7 +509,7 @@ export function GameCanvas(): JSX.Element {
 
       const frame = buildRenderFrame(interpolationAlpha);
       rendererRef.current?.draw(frame);
-      minimapRendererRef.current?.draw({ ...frame, showControlsHint: false });
+      minimapRendererRef.current?.draw({ ...frame, controlsHint: null });
 
       requestIdReference.current = requestAnimationFrame(animationLoop);
     }
@@ -534,7 +546,8 @@ export function GameCanvas(): JSX.Element {
       handleKeyDownBase(
         event,
         playerOneRef as React.MutableRefObject<PlayerForInput>,
-        handleManualReset
+        handleManualReset,
+        steeringMode
       );
     }
     window.addEventListener('keydown', keydownHandler);
@@ -595,8 +608,13 @@ export function GameCanvas(): JSX.Element {
   function handleTouchDirection(
     direction: 'up' | 'down' | 'left' | 'right'
   ): void {
-    if (gameState === 'playing')
-      playerOneRef.current.pendingDirection = direction;
+    if (gameState !== 'playing') return;
+
+    playerOneRef.current.pendingDirection = resolveSteering(
+      direction,
+      playerOneRef.current.direction,
+      steeringMode
+    );
   }
 
   // HUD
@@ -652,7 +670,8 @@ export function GameCanvas(): JSX.Element {
     if (gameState === 'menu') {
       return {
         title: 'Lightcycle Arena',
-        paragraph: 'Choose your view — Move: Arrows/WASD · Reset: R',
+        paragraph:
+          '2D Classic: arrows steer by compass · 3D Cockpit: left/right turn the bike · R resets',
         primaryLabel: '2D Classic',
         onPrimary: () => startRunInMode('2d'),
         secondaryLabel: '3D Cockpit',
@@ -778,7 +797,11 @@ export function GameCanvas(): JSX.Element {
       <div className='hud-zone'>{hud}</div>
       {arena}
       <div className='controls-zone'>
-        <DPadOverlay onInput={handleTouchDirection} onReset={handleManualReset} />
+        <DPadOverlay
+          onInput={handleTouchDirection}
+          onReset={handleManualReset}
+          steeringMode={steeringMode}
+        />
       </div>
     </div>
   ) : (

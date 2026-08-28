@@ -74,3 +74,32 @@ export const resetLabelStyle: CSSProperties = {
   textTransform: "uppercase",
   opacity: 0.9,
 };
+
+/**
+ * Cockpit layout: the chase camera only ever needs "turn left" and
+ * "turn right", so they get the whole width instead of four small keys.
+ */
+export const turnPadContainerStyle: CSSProperties = {
+  width: "clamp(260px, 94vw, 480px)",
+  height: "clamp(112px, 26vh, 190px)",
+  display: "grid",
+  gridTemplateColumns: "1fr auto 1fr",
+  alignItems: "center",
+  gap: "clamp(10px, 3vw, 20px)",
+  opacity: 0.96,
+};
+
+export const turnButtonStyle: CSSProperties = {
+  height: "100%",
+  borderRadius: 18,
+  border: "1px solid #3a3a3a",
+  background: "#1f1f1f",
+  boxShadow: "inset 0 2px 6px rgba(0,0,0,0.35)",
+  display: "grid",
+  placeItems: "center",
+  fontSize: 30,
+  color: "#f0f4ff",
+  userSelect: "none",
+  WebkitTapHighlightColor: "transparent",
+  touchAction: "none",
+};

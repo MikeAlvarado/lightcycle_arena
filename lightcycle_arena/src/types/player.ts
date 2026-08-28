@@ -31,7 +31,7 @@ export interface Player extends PlayerIdentity, PlayerState {}
 /**
  * Helpers for input and reset hooks (narrow contracts).
  */
-export type PlayerForInput = Pick<Player, "pendingDirection">;
+export type PlayerForInput = Pick<Player, "direction" | "pendingDirection">;
 export type PlayerForReset = Pick<
   Player,
   | "headLatticeIndex"
