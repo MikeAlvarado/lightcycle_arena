@@ -146,6 +146,37 @@ export interface RiderState extends MovingPlayer {
 }
 
 /**
+ * A rider goes down and their wall goes with them.
+ *
+ * That is how the films do it — a program derezzes and its ribbon goes out —
+ * and it is the rule that will matter most once there is more than one rider a
+ * side: nobody should be killed by a wall belonging to somebody who is already
+ * out of the round.
+ *
+ * Trails never overlap, since a walled cell is one nobody can enter, so a
+ * rider's cells are theirs alone to clear.
+ */
+function derezTrail(
+  riderIndex: number,
+  occupancy: LatticeMatrix,
+  trails: LatticeMatrix[],
+  restingPlace: LatticeIndex
+): void {
+  const trail = trails[riderIndex];
+
+  for (let row = 0; row < trail.length; row += 1) {
+    for (let column = 0; column < trail[row].length; column += 1) {
+      if (!trail[row][column]) continue;
+      trail[row][column] = false;
+      occupancy[row][column] = false;
+    }
+  }
+
+  // And the mark that was only ever standing in for the bike.
+  setOccupancy(occupancy, restingPlace, false);
+}
+
+/**
  * Move every rider one tick and write the result into the lattices.
  *
  * Returns what took each rider down, or null if they are still riding. Riders
@@ -173,6 +204,7 @@ export function advanceRiders(
       // vertex instead of sliding into the wall it just hit.
       rider.previousHeadLatticeIndex = fromVertex;
       crashes[riderIndex] = move.cause;
+      derezTrail(riderIndex, occupancy, trails, fromVertex);
       return;
     }
 

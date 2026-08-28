@@ -358,3 +358,51 @@ describe("cutting the wall", () => {
     expect(rider.wallEnergy).toBeLessThan(0.1);
   });
 });
+
+describe("derezzing", () => {
+  it("takes a downed rider's wall out with them", () => {
+    const board = makeBoard();
+    const rider = ridingState(5, 2, "right");
+    const startVertex = rider.headLatticeIndex;
+
+    for (let tick = 0; tick < 3; tick += 1) {
+      advanceRiders([rider], GRID, board.occupancy, board.trails);
+    }
+    expect(isOccupied(board.trails[0], startVertex)).toBe(true);
+
+    // Into the wall.
+    rider.direction = "up";
+    for (let tick = 0; tick < 6; tick += 1) {
+      advanceRiders([rider], GRID, board.occupancy, board.trails);
+    }
+
+    expect(rider.isAlive).toBe(false);
+    expect(isOccupied(board.trails[0], startVertex)).toBe(false);
+    expect(isOccupied(board.occupancy, startVertex)).toBe(false);
+    expect(isOccupied(board.occupancy, rider.headLatticeIndex)).toBe(false);
+  });
+
+  it("clears the way for whoever is still riding", () => {
+    const board = makeBoard();
+
+    // One rider lays a wall straight up the middle and then hits the top.
+    const doomed = ridingState(5, 5, "up");
+    for (let tick = 0; tick < 8; tick += 1) {
+      advanceRiders([doomed], GRID, board.occupancy, board.trails);
+    }
+    expect(doomed.isAlive).toBe(false);
+
+    // Another rider crosses exactly where that wall stood. With the wall still
+    // up this is a crash; derezzed, it is an empty stretch of floor.
+    const survivor = ridingState(2, 1, "right");
+    for (let tick = 0; tick < 6; tick += 1) {
+      advanceRiders([doomed, survivor], GRID, board.occupancy, board.trails);
+    }
+
+    expect(survivor.isAlive).toBe(true);
+    expect(survivor.headLatticeIndex.columnIndexInLattice).toBe(
+      toLatticeVertexIndices({ rowIndexInCells: 2, columnIndexInCells: 7 })
+        .columnIndexInLattice
+    );
+  });
+});

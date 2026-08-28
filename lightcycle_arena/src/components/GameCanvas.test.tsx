@@ -126,7 +126,7 @@ describe("GameCanvas", () => {
 
   it("cuts the wall on Space and puts it back", () => {
     render(<GameCanvas />);
-    fireEvent.click(screen.getByRole("button", { name: /Jet Wall: Off/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Jet Wall/ }));
     fireEvent.click(screen.getByRole("button", { name: "2D Classic" }));
     runFrames(300);
 
