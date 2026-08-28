@@ -33,7 +33,7 @@ import { advanceRiders, describeCrash } from "./movement";
 import { createInitialMatchState, isRoundRunning, matchReducer } from "./matchState";
 import { handleKeyDown } from "../utils/inputHandlers";
 import { resolveSteering } from "../utils/steering";
-import { AI_PARAMS, decideNextDirection } from "../ai/simpleAI";
+import { decideNextDirection, shouldDecideThisTick } from "../ai/simpleAI";
 import { getSoundEngine } from "../audio/soundEngine";
 import { loadThreeRenderer } from "../render/loadThreeRenderer";
 import { useArenaRenderers } from "../render/useArenaRenderers";
@@ -199,21 +199,15 @@ export function useLightcycleGame(): LightcycleGame {
     if (!player.isAlive || !rival.isAlive) return;
 
     if (state.matchMode === "solo") {
-      const params = AI_PARAMS[opponent.difficulty];
-      // Math.max guards against a 0 cadence: n % 0 is NaN, which would silently
-      // disable the bot's decision-making for that difficulty.
-      const decisionCadence = Math.max(1, params.decisionEveryNTicks);
+      const view = {
+        grid: GRID_CONFIG,
+        lattice: occupancyRef.current,
+        self: rival,
+        opponent: player,
+      };
 
-      if (tickCounterRef.current % decisionCadence === 0) {
-        rival.pendingDirection = decideNextDirection(
-          {
-            grid: GRID_CONFIG,
-            lattice: occupancyRef.current,
-            self: rival,
-            opponent: player,
-          },
-          opponent.difficulty
-        );
+      if (shouldDecideThisTick(view, opponent.difficulty, tickCounterRef.current)) {
+        rival.pendingDirection = decideNextDirection(view, opponent.difficulty);
       }
     }
 

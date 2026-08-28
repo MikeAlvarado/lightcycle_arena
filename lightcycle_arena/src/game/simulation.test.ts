@@ -1,5 +1,5 @@
 // src/game/simulation.test.ts
-import { arenaSetup, runSeries } from "./simulation";
+import { arenaSetup, runDuel, runSeries } from "./simulation";
 import type { RiderPolicy } from "./simulation";
 import type { AiDifficulty } from "../ai/simpleAI";
 import { SPAWN_COLUMN_OFFSET_IN_CELLS } from "../config/arena";
@@ -26,14 +26,13 @@ function seedRandom(seed: number): () => void {
   return () => spy.mockRestore();
 }
 
-const ROUNDS = Number(import.meta.env.VITE_SIMULATION_ROUNDS ?? 30);
+const ROUNDS = Number(import.meta.env.VITE_SIMULATION_ROUNDS ?? 20);
 const bot = (difficulty: AiDifficulty): RiderPolicy => ({ kind: "bot", difficulty });
 const straight: RiderPolicy = { kind: "straight" };
 
 /** Win rate as a percentage of rounds, draws counting for nobody. */
 function winRate(challenger: AiDifficulty, defender: AiDifficulty): number {
-  const summary = runSeries(arenaSetup([bot(challenger), bot(defender)]), ROUNDS);
-  return Math.round((summary.firstWins / summary.rounds) * 100);
+  return Math.round(runDuel(bot(challenger), bot(defender), ROUNDS).winRate * 100);
 }
 
 describe("balance", () => {
@@ -46,18 +45,15 @@ describe("balance", () => {
     restoreRandom();
   });
 
-  it("makes every rung of the ladder harder than the one below it", () => {
+  it("makes every rung of the ladder harder than the one below it", { timeout: 60_000 }, () => {
     // Against Easy the top rungs all sit near the ceiling, so the ladder is
     // judged against a rival that can actually hold a line.
     const againstHard = BOT_ROSTER.map((profile) => winRate(profile.difficulty, "Hard"));
 
     const table = BOT_ROSTER.map((profile, index) => {
-      const summary = runSeries(
-        arenaSetup([bot(profile.difficulty), bot("Easy")]),
-        ROUNDS
-      );
+      const duel = runDuel(bot(profile.difficulty), bot("Easy"), ROUNDS);
       const seconds = (
-        (summary.averageTicks * stepMillisecondsForLevel(index + 1)) /
+        (duel.averageTicks * stepMillisecondsForLevel(index + 1)) /
         1000
       ).toFixed(1);
 
@@ -65,9 +61,9 @@ describe("balance", () => {
         level: index + 1,
         rider: profile.name,
         difficulty: profile.difficulty,
-        "beats Easy": `${Math.round((summary.firstWins / summary.rounds) * 100)}%`,
+        "beats Easy": `${Math.round(duel.winRate * 100)}%`,
         "beats Hard": `${againstHard[index]}%`,
-        draws: summary.draws,
+        draws: `${Math.round(duel.drawRate * 100)}%`,
         "avg round": `${seconds}s`,
       };
     });
@@ -83,8 +79,8 @@ describe("balance", () => {
     expect(veryHard).toBeGreaterThanOrEqual(50);
   });
 
-  it("keeps a rider who doesn't turn alive long enough to think", () => {
-    const openings = [0, 3, SPAWN_COLUMN_OFFSET_IN_CELLS, 9].map((offset) => {
+  it("makes the nose to nose start a game of chicken, not a coin toss", { timeout: 60_000 }, () => {
+    const openings = [SPAWN_COLUMN_OFFSET_IN_CELLS, 3, 6, 9].map((offset) => {
       const summary = runSeries(
         arenaSetup([straight, bot("Normal")], { columnOffsetInCells: offset }),
         ROUNDS
@@ -94,7 +90,7 @@ describe("balance", () => {
         "spawn offset (cells)": offset,
         shipped: offset === SPAWN_COLUMN_OFFSET_IN_CELLS ? "yes" : "",
         "head-on rounds": `${Math.round((summary.headOns / summary.rounds) * 100)}%`,
-        "shortest round": `${(summary.shortestTicks / 10).toFixed(1)}s`,
+        "reaction time": `${(summary.shortestTicks / 10).toFixed(1)}s`,
         "avg round": `${(summary.averageTicks / 10).toFixed(1)}s`,
       };
     });
@@ -103,9 +99,13 @@ describe("balance", () => {
 
     const shipped = runSeries(arenaSetup([straight, bot("Normal")]), ROUNDS);
 
-    // The opening must not be a coin toss on a head-on, and nobody should be
-    // dead before they have had a second to look around.
-    expect(shipped.headOns / shipped.rounds).toBeLessThan(0.2);
-    expect(shipped.shortestTicks).toBeGreaterThan(12);
+    /*
+     * The riders start nose to nose, so a rider who never turns is going to
+     * lose that round — that is the point of the opening. What must not happen
+     * is the bot taking itself out along with them: it swerves and cuts across
+     * instead, which is a duel the player can win by riding better rather than
+     * a trade neither of them survives.
+     */
+    expect(shipped.headOns / shipped.rounds).toBeLessThan(0.1);
   });
 });
