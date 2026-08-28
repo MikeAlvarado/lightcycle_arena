@@ -5,8 +5,9 @@ import {
   BufferGeometry,
   CanvasTexture,
   Color,
-  ConeGeometry,
   CylinderGeometry,
+  DoubleSide,
+  ExtrudeGeometry,
   Float32BufferAttribute,
   Fog,
   Group,
@@ -17,10 +18,13 @@ import {
   Mesh,
   MeshStandardMaterial,
   NeutralToneMapping,
+  Path,
   PerspectiveCamera,
   PlaneGeometry,
   PointLight,
   Scene,
+  Shape,
+  SphereGeometry,
   Sprite,
   SpriteMaterial,
   TorusGeometry,
@@ -62,7 +66,7 @@ const TRAIL_RIM_THICKNESS = 0.34;
  * The wall is laid a bit behind the rear wheel. Without this gap the bike sits
  * inside its own glow and the chase camera can't read its silhouette.
  */
-const TRAIL_TIP_GAP = 0.95;
+const TRAIL_TIP_GAP = 1.15;
 
 const ARENA_WALL_HEIGHT = 11;
 const ARENA_WALL_THICKNESS = 1.4;
@@ -106,6 +110,18 @@ const RESOLUTION_STEP = 0.25;
 const MINIMUM_PIXEL_RATIO = 0.75;
 const RESOLUTION_REVIEW_SECONDS = 1.5;
 
+/**
+ * Where the wheels sit in the hull's own coordinates: length along X with the
+ * nose at negative X, height along Y with the ground at zero. The rear wheel is
+ * the larger of the two, as it is on the film's bike.
+ */
+const WHEELS = [
+  { x: -0.6, y: 0.36, radius: 0.34 },
+  { x: 0.66, y: 0.42, radius: 0.4 },
+] as const;
+
+const BIKE_WIDTH = 0.32;
+
 const DEBRIS_PER_CRASH = 18;
 const DEBRIS_GRAVITY = 11;
 const CAMERA_SHAKE_ON_CRASH = 0.55;
@@ -134,7 +150,7 @@ interface PlayerVisual {
   bike: Group;
   panelMaterial: MeshStandardMaterial;
   rimMaterial: MeshStandardMaterial;
-  glowMaterial: MeshStandardMaterial;
+  tintedMaterials: MeshStandardMaterial[];
   bikeLight: PointLight;
   label: Sprite;
   labelMaterial: SpriteMaterial;
@@ -395,8 +411,57 @@ export function createThreeRenderer(
    */
   interface BikeParts {
     group: Group;
-    glowMaterial: MeshStandardMaterial;
+    /** Everything that wears the rider's colour and is repainted per level. */
+    tintedMaterials: MeshStandardMaterial[];
     light: PointLight;
+  }
+
+  /**
+   * The side view of a 1982 lightcycle, drawn once and extruded.
+   *
+   * The original was built out of plain solids — that is why it looks the way
+   * it does — so a hand-drawn profile with two round holes for the wheels gets
+   * closer to it than any amount of bevelled detail would. Length runs along
+   * the shape's X, height along its Y, and the whole thing is turned to face
+   * down the bike's own -Z afterwards.
+   */
+  function buildHullShape(): Shape {
+    const hull = new Shape();
+
+    hull.moveTo(-1.42, 0.26); // the nose reaches well past the front wheel
+    hull.lineTo(-1.3, 0.44);
+    hull.quadraticCurveTo(-1.02, 0.76, -0.6, 0.76); // tight over the front wheel
+    hull.quadraticCurveTo(-0.32, 0.76, -0.2, 0.62);
+    hull.lineTo(0.16, 0.6); // the deck runs flat and high between the wheels
+    hull.quadraticCurveTo(0.34, 0.64, 0.44, 0.82);
+    hull.quadraticCurveTo(0.66, 0.94, 0.92, 0.84); // and over the rear one
+    hull.quadraticCurveTo(1.12, 0.74, 1.16, 0.46);
+    hull.lineTo(1.1, 0.16); // tail
+    hull.quadraticCurveTo(1.06, -0.03, 0.86, -0.03);
+    hull.lineTo(-0.86, -0.03); // a skirt close to the floor the whole length
+    hull.quadraticCurveTo(-1.16, -0.03, -1.3, 0.12);
+    hull.closePath();
+
+    // The wheels show through the body rather than hanging off it. The holes
+    // have to sit clear of the outline: an opening that crosses it leaves the
+    // extruded shape undefined, which is exactly how this started out as a slab.
+    for (const wheel of WHEELS) {
+      const opening = new Path();
+      opening.absarc(wheel.x, wheel.y, wheel.radius + 0.03, 0, Math.PI * 2, true);
+      hull.holes.push(opening);
+    }
+
+    // The notch under the deck, the cut-out that keeps the middle from reading
+    // as a slab between two rings.
+    const notch = new Path();
+    notch.moveTo(-0.22, 0.1);
+    notch.lineTo(0.22, 0.1);
+    notch.lineTo(0.22, 0.46);
+    notch.lineTo(-0.22, 0.46);
+    notch.closePath();
+    hull.holes.push(notch);
+
+    return hull;
   }
 
   function buildBike(color: Color): BikeParts {
@@ -405,78 +470,151 @@ export function createThreeRenderer(
     // tips the rider rather than swinging the whole bike sideways.
     bike.rotation.order = "YZX";
 
-    const chassisMaterial = trackMaterial(
-      new MeshStandardMaterial({ color: 0x1c2334, roughness: 0.35, metalness: 0.7 })
+    const bodyMaterial = trackMaterial(
+      new MeshStandardMaterial({
+        color,
+        // Just enough of its own light to read against a dark floor; the film's
+        // bikes are painted, not lit.
+        emissive: color,
+        emissiveIntensity: 0.4,
+        roughness: 0.38,
+        metalness: 0.25,
+      })
+    );
+    const trimMaterial = trackMaterial(
+      new MeshStandardMaterial({ color: 0xd6e2f4, roughness: 0.42, metalness: 0.4 })
     );
     const darkMaterial = trackMaterial(
-      new MeshStandardMaterial({ color: 0x0a0d16, roughness: 0.5, metalness: 0.6 })
+      new MeshStandardMaterial({ color: 0x05070e, roughness: 0.45, metalness: 0.5 })
     );
-    const glowMaterial = trackMaterial(
+    // The hub is the one part that glows, and it is what you pick out at range.
+    // A band seen from inside as well as out, so it needs both faces.
+    const fenderMaterial = trackMaterial(
       new MeshStandardMaterial({
-        color: 0x05050a,
+        color,
         emissive: color,
-        emissiveIntensity: 1.5,
+        emissiveIntensity: 0.4,
+        roughness: 0.38,
+        metalness: 0.25,
+        side: DoubleSide,
+      })
+    );
+    const hubMaterial = trackMaterial(
+      new MeshStandardMaterial({
+        color: 0x0a0c14,
+        emissive: color,
+        emissiveIntensity: 2.2,
         roughness: 0.3,
       })
     );
 
-    const hull = new Mesh(unitBoxGeometry, chassisMaterial);
-    hull.scale.set(0.5, 0.3, 1.9);
-    hull.position.y = 0.46;
-    bike.add(hull);
+    const extrudeSettings = {
+      bevelEnabled: true,
+      bevelThickness: 0.018,
+      bevelSize: 0.022,
+      bevelSegments: 2,
+      curveSegments: 14,
+    };
 
-    // Nose cone, so the bike reads as pointing somewhere from behind.
-    const nose = new Mesh(trackGeometry(new ConeGeometry(0.26, 0.7, 4)), chassisMaterial);
-    nose.rotation.x = -Math.PI / 2;
-    nose.rotation.y = Math.PI / 4;
-    nose.position.set(0, 0.46, -1.2);
-    bike.add(nose);
+    const hullGeometry = trackGeometry(
+      new ExtrudeGeometry(buildHullShape(), { ...extrudeSettings, depth: BIKE_WIDTH })
+    );
+    // Drawn side-on, so turn it to face down the bike's length and centre it.
+    hullGeometry.rotateY(-Math.PI / 2);
+    hullGeometry.translate(BIKE_WIDTH / 2, 0, 0);
+    bike.add(new Mesh(hullGeometry, bodyMaterial));
 
-    // Light spine, the part that carries at distance.
-    const spine = new Mesh(unitBoxGeometry, glowMaterial);
-    spine.scale.set(0.22, 0.12, 1.55);
-    spine.position.y = 0.65;
-    bike.add(spine);
+    // The pale beam slung under the hull between the wheels.
+    const belly = new Mesh(unitBoxGeometry, trimMaterial);
+    belly.scale.set(BIKE_WIDTH * 0.62, 0.07, 0.95);
+    belly.position.set(0, 0.2, 0.02);
+    bike.add(belly);
 
-    // Fairings flaring out over each wheel.
-    for (const side of [-1, 1]) {
-      const fairing = new Mesh(unitBoxGeometry, darkMaterial);
-      fairing.scale.set(0.12, 0.2, 1.1);
-      fairing.position.set(side * 0.3, 0.5, 0);
-      fairing.rotation.z = side * 0.25;
-      bike.add(fairing);
+    // Canopy: a dark bubble over the saddle, narrower than the hull.
+    const canopyShape = new Shape();
+    canopyShape.moveTo(-0.26, 0.62);
+    canopyShape.quadraticCurveTo(-0.12, 0.98, 0.14, 0.94);
+    canopyShape.quadraticCurveTo(0.32, 0.9, 0.34, 0.64);
+    canopyShape.closePath();
+
+    const canopyWidth = BIKE_WIDTH * 0.72;
+    const canopyGeometry = trackGeometry(
+      new ExtrudeGeometry(canopyShape, { ...extrudeSettings, depth: canopyWidth })
+    );
+    canopyGeometry.rotateY(-Math.PI / 2);
+    canopyGeometry.translate(canopyWidth / 2, 0, 0);
+    bike.add(new Mesh(canopyGeometry, darkMaterial));
+
+    const hubGeometry = trackGeometry(new SphereGeometry(0.085, 14, 10));
+
+    for (const wheel of WHEELS) {
+      // The fender is a band right around the wheel, standing proud of the
+      // hull. On the film's bike it is the widest thing on it, and from behind
+      // it is most of what you can see.
+      const fender = new Mesh(
+        trackGeometry(
+          new CylinderGeometry(
+            wheel.radius + 0.07,
+            wheel.radius + 0.07,
+            BIKE_WIDTH + 0.16,
+            26,
+            1,
+            true
+          )
+        ),
+        fenderMaterial
+      );
+      fender.rotation.z = Math.PI / 2; // lay the cylinder on its side (axis along X)
+      fender.position.set(0, wheel.y, wheel.x);
+      bike.add(fender);
+
+      const tyre = new Mesh(
+        trackGeometry(new TorusGeometry(wheel.radius - 0.06, 0.06, 10, 26)),
+        darkMaterial
+      );
+      // A torus faces +Z by default; turn it to roll along the bike's length.
+      tyre.rotation.y = Math.PI / 2;
+      tyre.position.set(0, wheel.y, wheel.x);
+      bike.add(tyre);
+
+      const disc = new Mesh(
+        trackGeometry(
+          new CylinderGeometry(wheel.radius - 0.11, wheel.radius - 0.11, 0.09, 22)
+        ),
+        trimMaterial
+      );
+      disc.rotation.z = Math.PI / 2; // lay the cylinder on its side (axis along X)
+      disc.position.set(0, wheel.y, wheel.x);
+      bike.add(disc);
+
+      const hub = new Mesh(hubGeometry, hubMaterial);
+      hub.position.set(0, wheel.y, wheel.x);
+      bike.add(hub);
     }
 
-    const rider = new Mesh(unitBoxGeometry, darkMaterial);
-    rider.scale.set(0.32, 0.46, 0.46);
-    rider.position.set(0, 0.86, 0.16);
-    bike.add(rider);
-
-    const canopy = new Mesh(unitBoxGeometry, glowMaterial);
-    canopy.scale.set(0.24, 0.08, 0.5);
-    canopy.position.set(0, 1.09, 0.16);
-    bike.add(canopy);
-
-    const wheelGeometry = trackGeometry(new CylinderGeometry(0.36, 0.36, 0.16, 18));
-    const rimGeometry = trackGeometry(new TorusGeometry(0.36, 0.05, 8, 22));
-
-    for (const wheelZ of [-0.68, 0.68]) {
-      const wheel = new Mesh(wheelGeometry, darkMaterial);
-      wheel.rotation.z = Math.PI / 2; // lay the cylinder on its side (axis along X)
-      wheel.position.set(0, 0.36, wheelZ);
-      bike.add(wheel);
-
-      const wheelRim = new Mesh(rimGeometry, glowMaterial);
-      wheelRim.rotation.y = Math.PI / 2; // torus faces +Z by default; turn it to face +X
-      wheelRim.position.set(0, 0.36, wheelZ);
-      bike.add(wheelRim);
-    }
+    // A dark panel across the tail, so the back of the bike — which is what a
+    // chase camera looks at all day — isn't one flat block of colour.
+    const tailPanel = new Mesh(unitBoxGeometry, darkMaterial);
+    tailPanel.scale.set(BIKE_WIDTH * 0.78, 0.26, 0.1);
+    tailPanel.position.set(0, 0.38, 1.08);
+    bike.add(tailPanel);
 
     const bikeLight = new PointLight(color, 3, 6, 2);
-    bikeLight.position.set(0, 0.9, 0);
+    bikeLight.position.set(0, 0.7, 0);
     bike.add(bikeLight);
 
-    return { group: bike, glowMaterial, light: bikeLight };
+    /*
+     * Drawn at a comfortable size to author and then taken down to the arena's
+     * scale: a bike longer than the cell it turns inside clips through its own
+     * wall on every corner.
+     */
+    bike.scale.setScalar(0.8);
+
+    return {
+      group: bike,
+      tintedMaterials: [bodyMaterial, fenderMaterial, hubMaterial],
+      light: bikeLight,
+    };
   }
 
   /**
@@ -500,7 +638,7 @@ export function createThreeRenderer(
 
       const visual: PlayerVisual = {
         bike: parts.group,
-        glowMaterial: parts.glowMaterial,
+        tintedMaterials: parts.tintedMaterials,
         bikeLight: parts.light,
         label,
         labelMaterial,
@@ -546,7 +684,11 @@ export function createThreeRenderer(
         visual.colorHex = player.color;
         visual.panelMaterial.emissive.copy(color);
         visual.rimMaterial.emissive.copy(color);
-        visual.glowMaterial.emissive.copy(color);
+        for (const material of visual.tintedMaterials) {
+          material.emissive.copy(color);
+          // The hull is painted in the colour as well as lit by it.
+          if (material.color.getHex() !== 0x0a0c14) material.color.copy(color);
+        }
         visual.bikeLight.color.copy(color);
         applyLabel(visual, player.label, player.color);
       } else if (visual.labelText !== player.label) {
