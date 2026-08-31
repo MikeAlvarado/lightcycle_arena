@@ -926,7 +926,9 @@ export function createThreeRenderer(
           3 + Math.random() * 5,
           Math.sin(angle) * speed
         ),
-        remainingLife: 0.9 + Math.random() * 0.6,
+        // Long enough to still be in the air when the verdict arrives, which
+        // is a second after the crash.
+        remainingLife: 1.1 + Math.random() * 0.7,
       });
     }
 
