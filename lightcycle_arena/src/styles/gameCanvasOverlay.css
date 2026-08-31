@@ -36,23 +36,32 @@
 }
 
 /*
- * A crash deserves to be watched. The scrim comes up slowly over the wreck —
- * debris still flying, walls going out — and the card only arrives once the
- * arena has gone dark. The card's own fade multiplies with the scrim's, which
- * is what stages the two.
+ * A crash deserves to be watched. The wreck gets a clear second of its own —
+ * debris flying, the camera still shaking — before anything is said about it.
+ *
+ * The scrim holds back for the first third of that rather than ramping evenly,
+ * so the explosion plays through a veil that is barely there and only then does
+ * the arena go dark. The card's own fade multiplies with the scrim's, which is
+ * what stages the two without a timer between them.
  */
 .canvas-overlay.is-crash {
-  animation: crash-scrim 900ms var(--ease-out) both;
+  animation: crash-scrim 1150ms var(--ease-out) both;
 }
 
 @keyframes crash-scrim {
-  from {
+  0% {
     opacity: 0;
+  }
+  35% {
+    opacity: 0.22;
+  }
+  100% {
+    opacity: 1;
   }
 }
 
 .canvas-overlay.is-crash > * {
-  animation: crash-card 420ms var(--ease-out) 640ms both;
+  animation: crash-card 420ms var(--ease-out) 1000ms both;
 }
 
 @keyframes crash-card {
